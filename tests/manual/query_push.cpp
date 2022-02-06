@@ -54,7 +54,7 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
     return true;
   }
   bool PostVisit(ScanAll &scan) override {
-    ffs_.emplace_back(std::move(ffs_[ffs_.size() - 1]).thenValue([](auto) {
+    ffs_.emplace_back(std::move(ffs_.back()).thenValue([](auto) {
       std::cout << "PostVisit ScanAll future execution" << std::endl;
       // Scan data and push results to the next future.
       return 1;
@@ -109,7 +109,7 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
     return true;
   }
   bool PostVisit(Produce &) override {
-    ffs_.emplace_back(std::move(ffs_[ffs_.size() - 1]).thenValue([](auto) {
+    ffs_.emplace_back(std::move(ffs_.back()).thenValue([](auto) {
       std::cout << "PostVisit Produce future execution" << std::endl;
       // Process results from all previous futures by sending them to the
       // client.
