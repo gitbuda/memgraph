@@ -11,6 +11,9 @@
 
 #include "interactive_planning.hpp"
 
+#include <chrono>
+#include <thread>
+
 #include <gflags/gflags.h>
 
 #include "interactive/db_accessor.hpp"
@@ -24,13 +27,19 @@
 
 namespace query::plan {
 
+// TODO(gitbuda): Add some batching mechanism for both input and output.
+
 class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisitor {
  public:
-  TestLogicalOperatorVisitor() = default;
+  TestLogicalOperatorVisitor() { ffs_.emplace_back(p_.getSemiFuture().via(&executor_)); }
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
+
+  void Start() { p_.setValue(1); }
+
+  bool IsDone() { return ffs_.back().isReady(); }
 
   bool Visit(Once &) override {
     std::cout << "Visit Once" << std::endl;
@@ -44,7 +53,14 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
     std::cout << "PreVisit ScanAll" << std::endl;
     return true;
   }
-  bool PostVisit(ScanAll &scan) override { return true; }
+  bool PostVisit(ScanAll &scan) override {
+    ffs_.emplace_back(std::move(ffs_[ffs_.size() - 1]).thenValue([](auto) {
+      std::cout << "PostVisit ScanAll future execution" << std::endl;
+      // Scan data and push results to the next future.
+      return 1;
+    }));
+    return true;
+  }
 
   bool PreVisit(Expand &op) override { return true; }
   bool PostVisit(Expand &expand) override { return true; }
@@ -89,10 +105,18 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
   bool PostVisit(ConstructNamedPath &) override { return true; }
 
   bool PreVisit(Produce &op) override {
-    std::cout << "Produce" << std::endl;
+    std::cout << "PreVisit Produce" << std::endl;
     return true;
   }
-  bool PostVisit(Produce &) override { return true; }
+  bool PostVisit(Produce &) override {
+    ffs_.emplace_back(std::move(ffs_[ffs_.size() - 1]).thenValue([](auto) {
+      std::cout << "PostVisit Produce future execution" << std::endl;
+      // Process results from all previous futures by sending them to the
+      // client.
+      return 1;
+    }));
+    return true;
+  }
 
   bool PreVisit(Delete &op) override { return true; }
   bool PostVisit(Delete &) override { return true; }
@@ -138,6 +162,11 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
 
   bool PreVisit(CallProcedure &op) override { return true; }
   bool PostVisit(CallProcedure &) override { return true; }
+
+ private:
+  folly::ThreadedExecutor executor_;
+  folly::Promise<int> p_;
+  std::vector<folly::Future<int>> ffs_;
 };
 }  // namespace query::plan
 
@@ -169,15 +198,14 @@ int main(int argc, char *argv[]) {
     throw utils::BasicException("No plans");
   }
 
-  query::plan::TestLogicalOperatorVisitor visitor;
-  plans[0].unoptimized_plan->Accept(visitor);
+  query::plan::TestLogicalOperatorVisitor executor;
+  plans[0].unoptimized_plan->Accept(executor);
+  executor.Start();
+  while (!executor.IsDone()) {
+    std::cout << "Executor NOT done yet" << std::endl;
+    std::this_thread::sleep_for(std::chrono::microseconds(10));
+  }
+  std::cout << "Executor done" << std::endl;
 
-  folly::ThreadedExecutor executor;
-  folly::Promise<int> p;
-  folly::Future<int> f = p.getSemiFuture().via(&executor);
-  auto f2 = std::move(f).thenValue(foo);
-  std::cout << "test" << std::endl;
-  p.setValue(42);
-  std::move(f2).get();
   return 0;
 }
