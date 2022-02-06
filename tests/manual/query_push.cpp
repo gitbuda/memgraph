@@ -170,11 +170,6 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
 };
 }  // namespace query::plan
 
-void foo(int x) {
-  // do something with x
-  std::cout << "foo(" << x << ")" << std::endl;
-}
-
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::info);
