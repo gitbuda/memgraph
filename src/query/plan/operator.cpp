@@ -456,6 +456,9 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
+  // TODO(gitbuda): This might be an interesting place to inject Thrift logic
+  // by adding the client to the context and providing a different
+  // vertices function.
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
