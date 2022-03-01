@@ -50,7 +50,7 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
   bool PostVisit(Filter &op) override { return true; }
 
   bool PreVisit(ScanAll &op) override {
-    std::cout << "PreVisit ScanAll" << std::endl;
+    std::cout << "PreVisit ScanAll, output " << op.output_symbol_.name_ << std::endl;
     return true;
   }
   bool PostVisit(ScanAll &scan) override {
@@ -105,7 +105,11 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
   bool PostVisit(ConstructNamedPath &) override { return true; }
 
   bool PreVisit(Produce &op) override {
-    std::cout << "PreVisit Produce" << std::endl;
+    std::cout << "PreVisit Produce, named expressions: ";
+    for (const auto &name_expr : op.named_expressions_) {
+      std::cout << name_expr->name_ << " ";
+    }
+    std::cout << std::endl;
     return true;
   }
   bool PostVisit(Produce &) override {
