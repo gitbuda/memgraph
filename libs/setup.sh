@@ -238,3 +238,7 @@ repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" 
 pushd librdtsc
 git apply ../librdtsc.patch
 popd
+
+repo_clone_try_double "https://github.com/ekpyron/xxhashct.git" "https://github.com/ekpyron/xxhashct.git" xxhashct "master" true
+repo_clone_try_double "https://github.com/Cyan4973/xxHash.git" "https://github.com/Cyan4973/xxHash.git" xxHash "dev" true
+repo_clone_try_double "https://github.com/stbrumme/xxhash.git" "https://github.com/stbrumme/xxhash.git" xxhash "master" true
