@@ -57,4 +57,4 @@ add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
 
 add_manual_test(hashing_research.cpp)
-target_link_libraries(${test_prefix}hashing_research xxhashct)
+target_link_libraries(${test_prefix}hashing_research xxhashct xxHash xxhashsb benchmark)

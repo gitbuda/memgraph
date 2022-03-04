@@ -11,11 +11,65 @@
 
 #include <iostream>
 #include <string>
+#include <thread>
+
+#include <benchmark/benchmark.h>
+
+static const std::size_t kThreadsNum = std::thread::hardware_concurrency();
+
+class HashingResearchFixture : public benchmark::Fixture {
+ protected:
+  void SetUp(const benchmark::State &) override {
+    // pass
+  }
+};
+
+#include "xxHash/xxhash.h"
+BENCHMARK_DEFINE_F(HashingResearchFixture, YC)
+(benchmark::State &state) {
+  uint64_t counter = 0;
+  std::string input = "short property name";
+  while (state.KeepRunning()) {
+    XXH64(input.c_str(), input.size(), 0);
+    counter += 1;
+  }
+  state.counters["hashes"] = counter;
+}
+BENCHMARK_REGISTER_F(HashingResearchFixture, YC)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
 
 #include "xxhashct/xxh64.hpp"
-
-int main() {
-  std::string input = "test";
-  std::cout << xxh64::hash(input.c_str(), 4, 0);
-  return 0;
+BENCHMARK_DEFINE_F(HashingResearchFixture, DK)
+(benchmark::State &state) {
+  uint64_t counter = 0;
+  std::string input = "short property name";
+  while (state.KeepRunning()) {
+    xxh64::hash(input.c_str(), input.size(), 0);
+    counter += 1;
+  }
+  state.counters["hashes"] = counter;
 }
+BENCHMARK_REGISTER_F(HashingResearchFixture, DK)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
+
+#include "xxhash/xxhash64.h"
+BENCHMARK_DEFINE_F(HashingResearchFixture, SB)
+(benchmark::State &state) {
+  uint64_t counter = 0;
+  std::string input = "short property name";
+  while (state.KeepRunning()) {
+    XXHash64::hash(input.c_str(), input.size(), 0);
+    counter += 1;
+  }
+  state.counters["hashes"] = counter;
+}
+BENCHMARK_REGISTER_F(HashingResearchFixture, SB)
+    ->ThreadRange(1, kThreadsNum)
+    ->Unit(benchmark::kNanosecond)
+    ->UseRealTime();
+
+BENCHMARK_MAIN();

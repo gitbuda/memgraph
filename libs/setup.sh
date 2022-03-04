@@ -241,4 +241,5 @@ popd
 
 repo_clone_try_double "https://github.com/ekpyron/xxhashct.git" "https://github.com/ekpyron/xxhashct.git" xxhashct "master" true
 repo_clone_try_double "https://github.com/Cyan4973/xxHash.git" "https://github.com/Cyan4973/xxHash.git" xxHash "dev" true
+pushd xxHash && make && popd
 repo_clone_try_double "https://github.com/stbrumme/xxhash.git" "https://github.com/stbrumme/xxhash.git" xxhash "master" true
