@@ -32,6 +32,7 @@ BENCHMARK_DEFINE_F(HashingResearchFixture, YC)
   uint64_t counter = 0;
   std::string input = "short property name";
   for (auto _ : state) {
+    // Runs slower of 32bits, build the abstraction?
     XXH64(input.c_str(), input.size(), 0);
     counter += 1;
   }
