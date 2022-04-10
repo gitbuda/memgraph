@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// NOTE: https://github.com/google/benchmark/blob/main/docs/user_guide.md#a-faster-keeprunning-loop
+
 #include <iostream>
 #include <string>
 #include <thread>
@@ -29,7 +31,7 @@ BENCHMARK_DEFINE_F(HashingResearchFixture, YC)
 (benchmark::State &state) {
   uint64_t counter = 0;
   std::string input = "short property name";
-  while (state.KeepRunning()) {
+  for (auto _ : state) {
     XXH64(input.c_str(), input.size(), 0);
     counter += 1;
   }
@@ -45,7 +47,7 @@ BENCHMARK_DEFINE_F(HashingResearchFixture, DK)
 (benchmark::State &state) {
   uint64_t counter = 0;
   std::string input = "short property name";
-  while (state.KeepRunning()) {
+  for (auto _ : state) {
     xxh64::hash(input.c_str(), input.size(), 0);
     counter += 1;
   }
@@ -61,7 +63,7 @@ BENCHMARK_DEFINE_F(HashingResearchFixture, SB)
 (benchmark::State &state) {
   uint64_t counter = 0;
   std::string input = "short property name";
-  while (state.KeepRunning()) {
+  for (auto _ : state) {
     XXHash64::hash(input.c_str(), input.size(), 0);
     counter += 1;
   }
