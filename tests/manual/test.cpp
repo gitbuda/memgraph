@@ -18,6 +18,7 @@
 #include <boost/uuid/uuid_io.hpp>
 
 #include "kvstore/kvstore.hpp"
+#include "utils/betree.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::filesystem;
@@ -31,15 +32,32 @@ class TestFixture : public benchmark::Fixture {
   void TearDown(const benchmark::State &) { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / ("manual_test_" + std::to_string(static_cast<int>(getpid())))};
-  std::optional<memgraph::kvstore::KVStore> kvstore = std::nullopt;
+  std::optional<memgraph::kvstore::KVStore> rocks = std::nullopt;
+  memgraph::utils::ConcurrentUnorderedMap<std::string, std::string> unordered_map;
 };
+
+BENCHMARK_DEFINE_F(TestFixture, TestStdMap)
+(benchmark::State &state) {
+  uint64_t counter = 0;
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto key = boost::uuids::to_string(boost::uuids::random_generator()());
+    auto value = boost::uuids::to_string(boost::uuids::random_generator()());
+    state.ResumeTiming();
+    unordered_map.Put(key, value);
+    counter += 1;
+  }
+  state.counters["unordered_map"] = counter;
+  // std::cout << unordered_map.Size() << std::endl;
+}
+BENCHMARK_REGISTER_F(TestFixture, TestStdMap)->ThreadRange(1, kThreadsNum)->Unit(benchmark::kNanosecond)->UseRealTime();
 
 BENCHMARK_DEFINE_F(TestFixture, TestRocks)
 (benchmark::State &state) {
   if (state.thread_index() == 0) {
-    if (!kvstore.has_value()) {
+    if (!rocks.has_value()) {
       boost::uuids::uuid unique_id;
-      kvstore = memgraph::kvstore::KVStore(
+      rocks = memgraph::kvstore::KVStore(
           test_folder_ / ("TestRocks_" + std::to_string(state.threads()) + "_" + boost::uuids::to_string(unique_id)));
     }
   }
@@ -49,14 +67,14 @@ BENCHMARK_DEFINE_F(TestFixture, TestRocks)
     auto key = boost::uuids::to_string(boost::uuids::random_generator()());
     auto value = boost::uuids::to_string(boost::uuids::random_generator()());
     state.ResumeTiming();
-    kvstore->Put(key, value);
+    rocks->Put(key, value);
     counter += 1;
   }
   state.counters["rocks"] = counter;
   if (state.thread_index() == 0) {
-    if (kvstore.has_value()) {
-      std::cout << kvstore->Size() << std::endl;
-      kvstore.reset();
+    if (rocks.has_value()) {
+      // std::cout << rocks->Size() << std::endl;
+      rocks.reset();
     }
   }
 }

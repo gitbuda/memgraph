@@ -11,8 +11,47 @@
 
 #pragma once
 
+#include <mutex>
+
 namespace memgraph::utils {
 
-class BeTree {};
+// TODO(gitbuda): Once the API is in place, define the concept.
+template <typename TStore, typename TKey, typename TValue>
+concept KVStore = requires(TStore s, TKey k, TValue v) {
+  { s.Get(k) } -> std::same_as<std::optional<TValue>>;
+  { s.Delete(k) } -> std::same_as<bool>;
+  { s.Put(k, v) } -> std::same_as<std::optional<TValue>>;
+  { s.Size() } -> std::same_as<uint64_t>;
+  // TODO(gitbuda): Add RangeGet(k1, k2) -> array.
+};
+
+// Baseline implementation to define the API and benchmark.
+template <typename TKey, typename TValue>
+class ConcurrentUnorderedMap {
+ public:
+  std::optional<TValue> Get(TKey key) const {
+    std::unique_lock guard{mutex_};
+    auto search = data_.find(key);
+    if (search != data_.end()) {
+      return search.second();
+    }
+    return std::nullopt;
+  }
+
+  std::optional<TValue> Put(TKey key, TValue value) {
+    std::unique_lock guard{mutex_};
+    auto result = data_.insert_or_assign(key, value);
+    return (*result.first).second;
+  }
+
+  auto Size() const {
+    std::unique_lock guard{mutex_};
+    return data_.size();
+  }
+
+ private:
+  std::unordered_map<TKey, TValue> data_;
+  std::mutex mutex_;
+};
 
 }  // namespace memgraph::utils
