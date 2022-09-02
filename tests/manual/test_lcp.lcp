@@ -1,0 +1,19 @@
+(let* ((push-pull-return (if (> 1 2) "co_yield multiframe;" ""))
+       (push-pull-input (if (> 1 2) "input_cursor.Pull()" "batches"))
+       (filter-cursor-impl (slot-value
+                             #>cpp
+                             Mutiframe multiframe;
+                             for (auto batch : ${push-pull-input}) {
+                               for (auto item : batch) {
+                                 if (evaluate(item)) {
+                                   multiframe.push_back(item)
+                                 }
+                                 if (multiframe.IsFull()) {
+                                   ${push-pull-return}
+                                 }
+                               }
+                             }
+                             cpp<# 'string)))
+  #>cpp
+    ${filter-cursor-impl}
+  cpp<#)
