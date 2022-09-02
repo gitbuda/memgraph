@@ -25,7 +25,31 @@ concept KVStore = requires(TStore s, TKey k, TValue v) {
   // TODO(gitbuda): Add RangeGet(k1, k2) -> array.
 };
 
-// Baseline implementation to define the API and benchmark.
+enum class MessageType {
+  kInsert = 0,
+  kDelete,
+  kUpdate,
+};
+
+template <typename TKey, typename TTime = uint64_t>
+struct MesssageKey {
+  TKey key;
+  TTime time;
+};
+
+template <typename TValue>
+struct MessageValue {
+  MessageType type;
+  TValue value;
+};
+
+template <typename TKey, typename TValue>
+class BeTree {
+  // NodeMaxSize
+  // NodeMinFlushSize
+};
+
+/// Baseline implementation to define the API and benchmark.
 template <typename TKey, typename TValue>
 class ConcurrentUnorderedMap {
  public:
