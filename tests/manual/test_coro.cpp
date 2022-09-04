@@ -9,25 +9,36 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <coroutine>  // clang #include <experimental/coroutine>
 #include <exception>
-#include <experimental/coroutine>
 #include <iostream>
 // #include <concepts> // because of std::convertible_to
 // apt install libc++-10-dev libc++abi-10-dev
-// /bin/clang++ -std=c++20 -stdlib=libc++ -fcoroutines-ts test_coro.cpp
+// CLANG 10: std::experimental
+// clang++ -std=c++20 -stdlib=libc++ -fcoroutines-ts test_coro.cpp
+//                         |------------|
+//                               |
+//                               --> big deal because Memgraph toolchain is missing libc++
+// TODO(gitbuda): Add libc++ to the toolchain -> https://libcxx.llvm.org/BuildingLibcxx.html
+//
+// GCC 11.2: just std
+// g++ -std=c++2a -fcoroutines test_coro.cpp
+// TODO(gitbuda): Test compile Memgraph with GCC again
+//
+// NOTE: Replacement for the code here -> https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2021/p2168r3.pdf
 
 template <typename T>
 struct SyncGenerator {
   struct promise_type;
-  using handle_type = std::experimental::coroutine_handle<promise_type>;
+  using handle_type = std::coroutine_handle<promise_type>;
 
   struct promise_type {  // required
     T value_;
     std::exception_ptr exception_;
 
     SyncGenerator get_return_object() { return SyncGenerator(handle_type::from_promise(*this)); }
-    std::experimental::suspend_always initial_suspend() { return {}; }
-    std::experimental::suspend_always final_suspend() noexcept { return {}; }
+    std::suspend_always initial_suspend() { return {}; }
+    std::suspend_always final_suspend() noexcept { return {}; }
     void unhandled_exception() {
       exception_ = std::current_exception();
     }  // saving
@@ -35,7 +46,7 @@ struct SyncGenerator {
 
     // template <std::convertible_to<T> From>  // C++20 concept
     template <typename From>
-    std::experimental::suspend_always yield_value(From &&from) {
+    std::suspend_always yield_value(From &&from) {
       value_ = std::forward<From>(from);  // caching the result in promise
       return {};
     }
