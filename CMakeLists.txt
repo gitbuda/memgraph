@@ -198,7 +198,9 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** If we change versions, recheck this! **
 # ** Static linking is allowed only for executables! **
 # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lc++")
+
+# message(STATUS "${CMAKE_CXX_STANDARD_LIBRARIES}")
+# set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lc++experimental")
 
 # Use gold linker to speedup build
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")

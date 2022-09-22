@@ -9,6 +9,7 @@ if (NPROC EQUAL 0)
 endif()
 
 find_package(Boost 1.78 REQUIRED)
+message(STATUS "BOOST_ROOT ${BOOST_ROOT}")
 find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
@@ -103,7 +104,7 @@ import_external_library(antlr4 STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
   CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
-             -DWITH_LIBCXX=OFF # because of debian bug
+             -DWITH_LIBCXX=ON # because of debian bug
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
              -DCMAKE_CXX_STANDARD=20
              -DANTLR_BUILD_CPP_TESTS=OFF
@@ -225,6 +226,7 @@ import_external_library(protobuf STATIC
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND true)
 
+#-DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
 import_external_library(pulsar STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include

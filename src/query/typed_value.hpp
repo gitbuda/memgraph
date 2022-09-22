@@ -146,6 +146,11 @@ class TypedValue {
     int_v = value;
   }
 
+  explicit TypedValue(long long value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Int) {
+    int_v = value;
+  }
+
   explicit TypedValue(double value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Double) {
     double_v = value;

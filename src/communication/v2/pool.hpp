@@ -62,7 +62,7 @@ class IOContextThreadPool final {
   IOContext io_context_;
   IOContextGuard guard_;
   size_t pool_size_;
-  std::vector<std::jthread> background_threads_;
+  std::vector<std::thread> background_threads_;
   bool running_{false};
 };
 }  // namespace memgraph::communication::v2
