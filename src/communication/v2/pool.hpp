@@ -51,7 +51,14 @@ class IOContextThreadPool final {
     running_ = false;
   }
 
-  void AwaitShutdown() { background_threads_.clear(); }
+  void AwaitShutdown() {
+    for (auto &thread : background_threads_) {
+      if (thread.joinable()) {
+        thread.join();
+      }
+    }
+    background_threads_.clear();
+  }
 
   bool IsRunning() const noexcept { return running_; }
 
