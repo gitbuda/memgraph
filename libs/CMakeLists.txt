@@ -225,7 +225,8 @@ import_external_library(protobuf STATIC
   ${PROTOBUF_ROOT}/lib/libprotobuf.a
   ${PROTOBUF_ROOT}/include
   BUILD_IN_SOURCE 1
-  CONFIGURE_COMMAND true)
+  CONFIGURE_COMMAND CXXFLAGS=-stdlib=libc++ $(CONFIGURE)
+  BUILD_COMMAND $(MAKE))
 
 import_external_library(pulsar STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
