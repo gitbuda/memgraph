@@ -9,7 +9,6 @@ if (NPROC EQUAL 0)
 endif()
 
 find_package(Boost 1.78 REQUIRED)
-message(STATUS "BOOST_ROOT ${BOOST_ROOT}")
 find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
@@ -156,6 +155,7 @@ import_external_library(rocksdb STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
   CMAKE_ARGS -DUSE_RTTI=ON
+             -DCMAKE_CXX_FLAGS="-stdlib=libc++"
              -DWITH_TESTS=OFF
              -DGFLAGS_NOTHREADS=OFF
              -DCMAKE_INSTALL_LIBDIR=lib
@@ -208,6 +208,7 @@ import_external_library(librdkafka STATIC
              -DWITH_ZSTD=OFF
              -DENABLE_LZ4_EXT=OFF
              -DCMAKE_INSTALL_LIBDIR=lib
+             -DCMAKE_CXX_FLAGS="-stdlib=libc++"
              -DWITH_SSL=ON
              # If we want SASL, we need to install it on build machines
              -DWITH_SASL=OFF)
@@ -226,7 +227,6 @@ import_external_library(protobuf STATIC
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND true)
 
-#-DCMAKE_CXX_FLAGS="${CMAKE_CXX_FLAGS}"
 import_external_library(pulsar STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
@@ -235,6 +235,7 @@ import_external_library(pulsar STATIC
                             -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install
                             -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                             -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                            -DCMAKE_CXX_FLAGS=-stdlib=libc++\ -I/opt/toolchain-v4/include
                             -DBUILD_DYNAMIC_LIB=OFF
                             -DBUILD_STATIC_LIB=ON
                             -DBUILD_TESTS=OFF
