@@ -55,3 +55,9 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+# NOTE: with coroutines clang only works with libc++
+# TODO(gitbuda): Try to compile the whole memgraph with libc++
+add_manual_test(test_coro.cpp)
+target_compile_options(${test_prefix}test_coro PUBLIC "-fcoroutines-ts")
+target_link_libraries(${test_prefix}test_coro mg-utils)

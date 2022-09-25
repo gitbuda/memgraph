@@ -2413,8 +2413,8 @@ antlrcpp::Any CypherMainVisitor::visitSchemaPropertyMap(MemgraphCypher::SchemaPr
   for (auto *property_key_pair : ctx->propertyKeyTypePair()) {
     auto key = std::any_cast<PropertyIx>(property_key_pair->propertyKeyName()->accept(this));
     auto type = std::any_cast<common::SchemaType>(property_key_pair->propertyType()->accept(this));
-    if (std::ranges::find_if(schema_property_map, [&key](const auto &elem) { return elem.first == key; }) !=
-        schema_property_map.end()) {
+    if (std::find_if(schema_property_map.begin(), schema_property_map.end(),
+                     [&key](const auto &elem) { return elem.first == key; }) != schema_property_map.end()) {
       throw SemanticException("Same property name can't appear twice in a schema map.");
     }
     schema_property_map.emplace_back(key, type);

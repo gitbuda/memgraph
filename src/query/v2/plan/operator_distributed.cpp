@@ -246,7 +246,8 @@ class ScanAllCursor : public Cursor {
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   TVerticesFun get_vertices_;
-  std::optional<typename std::result_of<TVerticesFun(MultiFrame &, ExecutionContext &)>::type::value_type> vertices_;
+  std::optional<typename std::invoke_result<TVerticesFun, MultiFrame &, ExecutionContext &>::type::value_type>
+      vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
   bool perform_full_enumeration_ = false;

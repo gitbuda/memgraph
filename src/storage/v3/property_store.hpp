@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <bit>
 #include <map>
 
 #include "storage/v3/id_types.hpp"
