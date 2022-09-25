@@ -71,8 +71,8 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatchingCoro_mu
   auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
-  const auto number_of_vertices = 200;
-  const auto number_of_frames_per_batch = 20;
+  const auto number_of_vertices = 100;
+  const auto number_of_frames_per_batch = 10;
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -139,25 +139,21 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatchingCoro_mu
   // START COUNTING
   auto start = std::chrono::steady_clock::now();
   while (cursor->Pull(multiframe, context)) {
-    for (auto *frame : multiframe.GetValidFrames()) {
+    for (auto *frame : multiframe.GetFrames()) {
       auto is_ok = true;
       std::vector<TypedValue> values;
-
       for (auto &symbol : symbols) {
         values.emplace_back((*frame)[symbol]);
       }
-
       if (is_ok) {
         results.emplace_back(values);
       }
     }
-
-    multiframe.ResetAll();
   }
   auto end = std::chrono::steady_clock::now();
   // STOP COUNTING
   const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "MULTIFRAME: DURATION OF PULL: " << duration << " ms" << std::endl;
+  std::cout << "CORO MULTIFRAME: DURATION OF PULL: " << duration << " ms" << std::endl;
 
   // End of collect result
 
@@ -182,8 +178,8 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_multif
   auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
-  const auto number_of_vertices = 200;
-  const auto number_of_frames_per_batch = 20;
+  const auto number_of_vertices = 100;
+  const auto number_of_frames_per_batch = 10;
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -293,7 +289,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_single
   auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
-  const auto number_of_vertices = 200;
+  const auto number_of_vertices = 100;
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);

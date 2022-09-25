@@ -27,7 +27,6 @@ struct SyncGenerator {
     void unhandled_exception() { exception_ = std::current_exception(); }
     template <typename From>
     std::experimental::suspend_always yield_value(From &&from) {
-      std::cout << "yield value RVALUE" << std::endl;
       value_ = std::forward<From>(from);  // caching the result in promise
       return {};
     }

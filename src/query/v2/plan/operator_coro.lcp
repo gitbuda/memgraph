@@ -181,12 +181,6 @@ can serve as inputs to others and thus a sequence of operations is formed.")
      AstStorage ast_storage;
      std::vector<std::shared_ptr<LogicalOperator>> loaded_ops;
    };
-
-   virtual void PerformFullEnumeration() {
-    if (HasSingleInput()) {
-      input()->PerformFullEnumeration();
-      }
-    } // #NoCommit =0 by default? only temporary so peers can work: all operators should implement it, perhaps it's not only about ScanAll
    cpp<#)
   (:serialize
    (:slk :base t
@@ -369,7 +363,6 @@ with a constructor argument.
    void set_input(std::shared_ptr<LogicalOperator> input) override {
      input_ = input;
    }
-   void PerformFullEnumeration() override;
    cpp<#)
   (:serialize (:slk))
   (:clone))

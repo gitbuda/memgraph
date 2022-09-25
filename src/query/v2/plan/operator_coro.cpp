@@ -102,7 +102,6 @@ bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
 
 SyncGenerator<bool> Once::OnceCursor::Pull(MultiFrame & /*frames*/, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
-
   if (!did_pull_) {
     did_pull_ = true;
     co_yield true;
@@ -135,8 +134,24 @@ class ScanAllCursor : public Cursor {
 
   SyncGenerator<bool> Pull(MultiFrame &multiframe, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("ScanAll");
-    if (input_cursor_->Pull(multiframe, context)) {
-      co_yield true;
+    auto gen = input_cursor_->Pull(multiframe, context);
+    while (gen) {
+      while (true) {
+        auto next_vertices = get_vertices_(multiframe, context);
+        if (!next_vertices) {
+          break;
+        }
+        vertices_.emplace(std::move(next_vertices.value()));
+        vertices_it_.emplace(vertices_.value().begin());
+        while (vertices_it_.value() != vertices_.value().end()) {
+          for (int i = 0; i < multiframe.Size(); ++i) {
+            auto &frame = multiframe.GetFrame(i);
+            frame[output_symbol_] = *vertices_it_.value();
+            ++vertices_it_.value();
+          }
+          co_yield true;
+        }
+      }
     }
     co_return false;
   }
@@ -164,15 +179,12 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
     : input_(input ? input : std::make_shared<Once>()),
       output_symbol_(output_symbol),
       view_(view),
-      perform_full_enumeration_(false) {
-  input_->PerformFullEnumeration();
-}
+      perform_full_enumeration_(false) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
-
   auto vertices = [this](MultiFrame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
@@ -185,11 +197,6 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
   return symbols;
-}
-
-void ScanAll::PerformFullEnumeration() {
-  perform_full_enumeration_ = true;           // Specific to ScanAll
-  LogicalOperator::PerformFullEnumeration();  // We need to propagate it below
 }
 
 Produce::Produce(const std::shared_ptr<coro::LogicalOperator> &input,
@@ -219,9 +226,8 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 
 SyncGenerator<bool> Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
-
-  if (input_cursor_->Pull(multiframe, context)) {
-    // Produce should always yield the latest results.
+  auto gen = input_cursor_->Pull(multiframe, context);
+  while (gen) {
     for (auto *frame : multiframe.GetFrames()) {
       if (!frame->IsValid()) {
         continue;
@@ -232,7 +238,6 @@ SyncGenerator<bool> Produce::ProduceCursor::Pull(MultiFrame &multiframe, Executi
         named_expr->Accept(evaluator);
       }
     }
-
     co_yield true;
   }
   co_return false;
