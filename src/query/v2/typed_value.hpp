@@ -151,6 +151,11 @@ class TypedValue {
     double_v = value;
   }
 
+  explicit TypedValue(long long value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Int) {
+    int_v = value;
+  }
+
   explicit TypedValue(const utils::Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Date) {
     date_v = value;

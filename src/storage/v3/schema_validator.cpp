@@ -11,7 +11,8 @@
 
 #include "storage/v3/schema_validator.hpp"
 
-#include <bits/ranges_algo.h>
+// TODO(gitbuda): Should be present in some later clang version -> https://libcxx.llvm.org/Status/Ranges.html
+// #include <bits/ranges_algo.h>
 #include <cstddef>
 #include <ranges>
 
@@ -55,25 +56,26 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
     }
   }
 
-  // Check only properties defined by schema
-  for (const auto &schema_type : schema->second) {
-    // Check schema property existence
-    auto property_pair = std::ranges::find_if(
-        properties, [schema_property_id = schema_type.property_id](const auto &property_type_value) {
-          return property_type_value.first == schema_property_id;
-        });
-    if (property_pair == properties.end()) {
-      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY, primary_label,
-                             schema_type);
-    }
-
-    // Check schema property type
-    if (auto property_schema_type = PropertyTypeToSchemaType(property_pair->second);
-        property_schema_type && *property_schema_type != schema_type.type) {
-      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label, schema_type,
-                             property_pair->second);
-    }
-  }
+  // // Check only properties defined by schema
+  // for (const auto &schema_type : schema->second) {
+  //   // Check schema property existence
+  //   auto property_pair = std::ranges::find_if(
+  //       properties, [schema_property_id = schema_type.property_id](const auto &property_type_value) {
+  //         return property_type_value.first == schema_property_id;
+  //       });
+  //   if (property_pair == properties.end()) {
+  //     return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY, primary_label,
+  //                            schema_type);
+  //   }
+  //
+  //   // Check schema property type
+  //   if (auto property_schema_type = PropertyTypeToSchemaType(property_pair->second);
+  //       property_schema_type && *property_schema_type != schema_type.type) {
+  //     return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label,
+  //     schema_type,
+  //                            property_pair->second);
+  //   }
+  // }
 
   return std::nullopt;
 }
@@ -84,14 +86,14 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
   const auto *schema = schemas_.GetSchema(primary_label);
   MG_ASSERT(schema, "Cannot validate against non existing schema!");
 
-  // Verify that updating property is not part of schema
-  if (const auto schema_property = std::ranges::find_if(
-          schema->second,
-          [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
-      schema_property != schema->second.end()) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
-                           *schema_property);
-  }
+  // // Verify that updating property is not part of schema
+  // if (const auto schema_property = std::ranges::find_if(
+  //         schema->second,
+  //         [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
+  //     schema_property != schema->second.end()) {
+  //   return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
+  //                          *schema_property);
+  // }
   return std::nullopt;
 }
 

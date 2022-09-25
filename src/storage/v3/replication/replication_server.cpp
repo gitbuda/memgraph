@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <sstream>
 
 #include "storage/v3/durability/durability.hpp"
 #include "storage/v3/durability/paths.hpp"
