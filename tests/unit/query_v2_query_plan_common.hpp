@@ -134,6 +134,11 @@ auto MakeProduceDistributed(std::shared_ptr<distributed::LogicalOperator> input,
   return std::make_shared<distributed::Produce>(input, std::vector<NamedExpression *>{named_expressions...});
 }
 
+template <typename... TNamedExpressions>
+auto MakeProduceCoro(std::shared_ptr<coro::LogicalOperator> input, TNamedExpressions... named_expressions) {
+  return std::make_shared<coro::Produce>(input, std::vector<NamedExpression *>{named_expressions...});
+}
+
 struct ScanAllTuple {
   NodeAtom *node_;
   std::shared_ptr<LogicalOperator> op_;
@@ -143,6 +148,12 @@ struct ScanAllTuple {
 struct ScanAllTupleDistributed {
   NodeAtom *node_;
   std::shared_ptr<distributed::LogicalOperator> op_;
+  Symbol sym_;
+};
+
+struct ScanAllTupleCoro {
+  NodeAtom *node_;
+  std::shared_ptr<coro::LogicalOperator> op_;
   Symbol sym_;
 };
 
@@ -171,6 +182,16 @@ ScanAllTupleDistributed MakeScanAllDistributed(AstStorage &storage, SymbolTable 
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<distributed::ScanAll>(input, symbol, view);
   return ScanAllTupleDistributed{node, logical_op, symbol};
+}
+
+ScanAllTupleCoro MakeScanAllCoro(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
+                                 std::shared_ptr<coro::LogicalOperator> input = {nullptr},
+                                 memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  node->identifier_->MapTo(symbol);
+  auto logical_op = std::make_shared<coro::ScanAll>(input, symbol, view);
+  return ScanAllTupleCoro{node, logical_op, symbol};
 }
 
 ScanAllTupleDistributed MakeScanAllByIdDistributed(

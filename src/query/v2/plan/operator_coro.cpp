@@ -11,7 +11,7 @@
 
 #include <algorithm>
 
-#include "query/v2/plan/operator_distributed.hpp"
+#include "query/v2/plan/operator_coro.hpp"
 
 #include "query/v2/interpret/eval.hpp"
 #include "query/v2/interpret/multiframe.hpp"
@@ -100,14 +100,14 @@ bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
 
-bool Once::OnceCursor::Pull(MultiFrame & /*frames*/, ExecutionContext &context) {
+SyncGenerator<bool> Once::OnceCursor::Pull(MultiFrame & /*frames*/, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
   if (!did_pull_) {
     did_pull_ = true;
-    return true;
+    co_yield true;
   }
-  return false;
+  co_return false;
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
@@ -134,8 +134,11 @@ class ScanAllCursor : public Cursor {
         perform_full_enumeration_(perform_full_enumeration) {}
 
   SyncGenerator<bool> Pull(MultiFrame &multiframe, ExecutionContext &context) override {
-    // TODO(gitbuda): Implement
-    throw 1;
+    SCOPED_PROFILE_OP("ScanAll");
+    if (input_cursor_->Pull(multiframe, context)) {
+      co_yield true;
+    }
+    co_return false;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -184,7 +187,13 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
+void ScanAll::PerformFullEnumeration() {
+  perform_full_enumeration_ = true;           // Specific to ScanAll
+  LogicalOperator::PerformFullEnumeration();  // We need to propagate it below
+}
+
+Produce::Produce(const std::shared_ptr<coro::LogicalOperator> &input,
+                 const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
 
 ACCEPT_WITH_INPUT(Produce)
@@ -208,7 +217,7 @@ std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const { r
 Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-bool Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
+SyncGenerator<bool> Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
 
   if (input_cursor_->Pull(multiframe, context)) {
@@ -224,9 +233,9 @@ bool Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &cont
       }
     }
 
-    return true;
+    co_yield true;
   }
-  return false;
+  co_return false;
 }
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }

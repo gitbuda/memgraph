@@ -26,6 +26,7 @@ set(mg_query_v2_sources
     interpret/multiframe.cpp
     plan/operator.cpp
     plan/operator_distributed.cpp
+    plan/operator_coro.cpp
     plan/preprocess.cpp
     plan/pretty_print.cpp
     plan/profile.cpp

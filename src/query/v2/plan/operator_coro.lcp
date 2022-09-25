@@ -233,7 +233,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 (defun slk-save-operator-pointer (member)
   #>cpp
-  slk::Save<query::v2::plan::LogicalOperator>(self.${member}, builder,
+  slk::Save<query::v2::plan::coro::LogicalOperator>(self.${member}, builder,
                                           &helper->saved_ops,
                                           [&helper](const auto &val,
                                                     auto *builder) {
@@ -243,7 +243,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 (defun slk-load-operator-pointer (member)
   #>cpp
-  slk::Load<query::v2::plan::LogicalOperator>(&self->${member}, reader, &helper->loaded_ops,
+  slk::Load<query::v2::plan::coro::LogicalOperator>(&self->${member}, reader, &helper->loaded_ops,
       [&helper](auto *op, auto *reader) {
         slk::ConstructAndLoad(op, reader, helper);
       });
