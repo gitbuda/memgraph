@@ -4,6 +4,7 @@ add_lcp_query(frontend/ast/ast.lcp)
 add_lcp_query(frontend/semantic/symbol.lcp)
 add_lcp_query(plan/operator.lcp)
 add_lcp_query(plan/operator_distributed.lcp)
+add_lcp_query(plan/operator_coro.lcp)
 
 add_custom_target(generate_lcp_query_v2 DEPENDS ${generated_lcp_query_v2_files})
 

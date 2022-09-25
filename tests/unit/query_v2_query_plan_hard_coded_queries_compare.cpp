@@ -23,6 +23,7 @@
 #include "io/simulator/simulator.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/exceptions.hpp"
+#include "query/v2/plan/operator_coro.hpp"
 #include "query/v2/plan/operator_distributed.hpp"
 #include "query_v2_query_plan_common.hpp"
 #include "storage/v3/property_value.hpp"

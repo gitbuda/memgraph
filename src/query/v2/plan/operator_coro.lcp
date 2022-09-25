@@ -1,0 +1,432 @@
+;; Copyright 2022 Memgraph Ltd.
+;;
+;; Use of this software is governed by the Business Source License
+;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+;; License, and you may not use this file except in compliance with the Business Source License.
+;;
+;; As of the Change Date specified in that file, in accordance with
+;; the Business Source License, use of this software will be governed
+;; by the Apache License, Version 2.0, included in the file
+;; licenses/APL.txt.
+
+#>cpp
+/** @file */
+
+#pragma once
+
+#include <algorithm>
+#include <vector>
+
+#include "query/v2/common.hpp"
+#include "utils/coro.hpp"
+cpp<#
+
+(lcp:namespace memgraph)
+(lcp:namespace query)
+(lcp:namespace v2)
+#>cpp
+struct ExecutionContext;
+class ExpressionEvaluator;
+class MultiFrame;
+class SymbolTable;
+cpp<#
+
+(lcp:pop-namespace) ;; v2
+(lcp:pop-namespace) ;; query
+(lcp:pop-namespace) ;; memgraph
+
+(lcp:namespace memgraph)
+(lcp:namespace query)
+(lcp:namespace v2)
+(lcp:namespace plan)
+(lcp:namespace coro)
+
+#>cpp
+
+/// Base class for iteration cursors of @c LogicalOperator classes.
+///
+/// Each @c LogicalOperator must produce a concrete @c Cursor, which provides
+/// the iteration mechanism.
+class Cursor {
+ public:
+  /// Run an iteration of a @c LogicalOperator.
+  ///
+  /// Since operators may be chained, the iteration may pull results from
+  /// multiple operators.
+  ///
+  /// @param Frame May be read from or written to while performing the
+  ///     iteration.
+  /// @param ExecutionContext Used to get the position of symbols in frame and
+  ///     other information.
+  ///
+  /// @throws QueryRuntimeException if something went wrong with execution
+  virtual SyncGenerator<bool> Pull(MultiFrame &, ExecutionContext &) = 0;
+
+  /// Resets the Cursor to its initial state.
+  virtual void Reset() = 0;
+
+  /// Perform cleanup which may throw an exception
+  virtual void Shutdown() = 0;
+
+  virtual ~Cursor() {}
+};
+
+/// unique_ptr to Cursor managed with a custom deleter.
+/// This allows us to use utils::MemoryResource for allocation.
+using UniqueCursorPtr = std::unique_ptr<Cursor, std::function<void(Cursor *)>>;
+
+class Once;
+class ScanAll;
+class Produce;
+
+using LogicalOperatorCompositeVisitor =
+    utils::CompositeVisitor<Once, ScanAll, Produce>;
+using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
+
+/**
+ * @brief Base class for hierarhical visitors of @c LogicalOperator class
+ * hierarchy.
+ */
+class HierarchicalLogicalOperatorVisitor
+    : public LogicalOperatorCompositeVisitor,
+      public LogicalOperatorLeafVisitor {
+ public:
+  using LogicalOperatorCompositeVisitor::PostVisit;
+  using LogicalOperatorCompositeVisitor::PreVisit;
+  using LogicalOperatorLeafVisitor::Visit;
+  using typename LogicalOperatorLeafVisitor::ReturnType;
+};
+cpp<#
+
+(lcp:define-class logical-operator ("utils::Visitable<HierarchicalLogicalOperatorVisitor>")
+  ()
+  (:abstractp t)
+  (:documentation
+   "Base class for logical operators.
+
+Each operator describes an operation, which is to be performed on the
+database. Operators are iterated over using a @c Cursor. Various operators
+can serve as inputs to others and thus a sequence of operations is formed.")
+  (:public
+   #>cpp
+   virtual ~LogicalOperator() {}
+
+   /** Construct a @c Cursor which is used to run this operator.
+    *
+    * @param utils::MemoryResource Memory resource used for allocations during
+    *     the lifetime of the returned Cursor.
+    */
+   virtual UniqueCursorPtr MakeCursor(utils::MemoryResource *) const = 0;
+
+   /** Return @c Symbol vector where the query results will be stored.
+    *
+    * Currently, output symbols are generated in @c Produce @c Union and
+    * @c CallProcedure operators. @c Skip, @c Limit, @c OrderBy and @c Distinct
+    * propagate the symbols from @c Produce (if it exists as input operator).
+    *
+    *  @param SymbolTable used to find symbols for expressions.
+    *  @return std::vector<Symbol> used for results.
+    */
+   virtual std::vector<Symbol> OutputSymbols(const SymbolTable &) const {
+     return std::vector<Symbol>();
+   }
+
+   /**
+    * Symbol vector whose values are modified by this operator sub-tree.
+    *
+    * This is different than @c OutputSymbols, because it returns all of the
+    * modified symbols, including those that may not be returned as the
+    * result of the query. Note that the modified symbols will not contain
+    * those that should not be read after the operator is processed.
+    *
+    * For example, `MATCH (n)-[e]-(m) RETURN n AS l` will generate `ScanAll (n) >
+    * Expand (e, m) > Produce (l)`. The modified symbols on Produce sub-tree will
+    * be `l`, the same as output symbols, because it isn't valid to read `n`, `e`
+    * nor `m` after Produce. On the other hand, modified symbols from Expand
+    * contain `e` and `m`, as well as `n`, while output symbols are empty.
+    * Modified symbols from ScanAll contain only `n`, while output symbols are
+    * also empty.
+    */
+   virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const = 0;
+
+   /**
+    * Returns true if the operator takes only one input operator.
+    * NOTE: When this method returns true, you may use `input` and `set_input`
+    * methods.
+    */
+   virtual bool HasSingleInput() const = 0;
+
+   /**
+    * Returns the input operator if it has any.
+    * NOTE: This should only be called if `HasSingleInput() == true`.
+    */
+   virtual std::shared_ptr<LogicalOperator> input() const = 0;
+   /**
+    * Set a different input on this operator.
+    * NOTE: This should only be called if `HasSingleInput() == true`.
+    */
+   virtual void set_input(std::shared_ptr<LogicalOperator>) = 0;
+
+   struct SaveHelper {
+     std::vector<LogicalOperator *> saved_ops;
+   };
+
+   struct LoadHelper {
+     AstStorage ast_storage;
+     std::vector<std::pair<uint64_t, std::shared_ptr<LogicalOperator>>>
+         loaded_ops;
+   };
+
+   struct SlkLoadHelper {
+     AstStorage ast_storage;
+     std::vector<std::shared_ptr<LogicalOperator>> loaded_ops;
+   };
+
+   virtual void PerformFullEnumeration() {
+    if (HasSingleInput()) {
+      input()->PerformFullEnumeration();
+      }
+    } // #NoCommit =0 by default? only temporary so peers can work: all operators should implement it, perhaps it's not only about ScanAll
+   cpp<#)
+  (:serialize
+   (:slk :base t
+         :save-args '((helper "query::v2::plan::LogicalOperator::SaveHelper *"))
+         :load-args '((helper "query::v2::plan::LogicalOperator::SlkLoadHelper *"))))
+  (:type-info :base t)
+  (:clone :args '((storage "AstStorage *"))
+          :base t))
+
+(defun slk-save-ast-pointer (member)
+  #>cpp
+  query::v2::SaveAstPointer(self.${member}, builder);
+  cpp<#)
+
+(defun slk-load-ast-pointer (type)
+  (lambda (member)
+    #>cpp
+    self->${member} = query::v2::LoadAstPointer<query::v2::${type}>(
+        &helper->ast_storage, reader);
+    cpp<#))
+
+(defun slk-save-ast-vector (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto *val : self.${member}) {
+    query::v2::SaveAstPointer(val, builder);
+  }
+  cpp<#)
+
+(defun slk-load-ast-vector (type)
+  (lambda (member)
+    #>cpp
+    size_t size = 0;
+    slk::Load(&size, reader);
+    self->${member}.resize(size);
+    for (size_t i = 0;
+         i < size;
+         ++i) {
+      self->${member}[i] = query::v2::LoadAstPointer<query::v2::${type}>(
+          &helper->ast_storage, reader);
+    }
+    cpp<#))
+
+(defun slk-save-operator-pointer (member)
+  #>cpp
+  slk::Save<query::v2::plan::LogicalOperator>(self.${member}, builder,
+                                          &helper->saved_ops,
+                                          [&helper](const auto &val,
+                                                    auto *builder) {
+                                            slk::Save(val, builder, helper);
+                                          });
+  cpp<#)
+
+(defun slk-load-operator-pointer (member)
+  #>cpp
+  slk::Load<query::v2::plan::LogicalOperator>(&self->${member}, reader, &helper->loaded_ops,
+      [&helper](auto *op, auto *reader) {
+        slk::ConstructAndLoad(op, reader, helper);
+      });
+  cpp<#)
+
+(lcp:define-class once (logical-operator)
+  ((symbols "std::vector<Symbol>" :scope :public))
+  (:documentation
+   "A logical operator whose Cursor returns true on the first Pull
+and false on every following Pull.")
+  (:public
+   #>cpp
+   Once(std::vector<Symbol> symbols = {}) : symbols_{std::move(symbols)} {}
+   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+     return symbols_;
+   }
+
+   bool HasSingleInput() const override;
+   std::shared_ptr<LogicalOperator> input() const override;
+   void set_input(std::shared_ptr<LogicalOperator>) override;
+   cpp<#)
+  (:private
+   #>cpp
+   class OnceCursor : public Cursor {
+    public:
+     OnceCursor() {}
+     SyncGenerator<bool> Pull(MultiFrame &, ExecutionContext &) override;
+     void Shutdown() override;
+     void Reset() override;
+
+    private:
+     bool did_pull_{false};
+   };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(defun slk-save-properties (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto &kv : self.${member}) {
+    slk::Save(kv.first, builder);
+    query::v2::SaveAstPointer(kv.second, builder);
+  }
+  cpp<#)
+
+(defun slk-load-properties (member)
+  #>cpp
+  size_t size = 0;
+  slk::Load(&size, reader);
+  self->${member}.resize(size);
+  for (size_t i = 0; i < size; ++i) {
+    storage::v3::PropertyId prop;
+    slk::Load(&prop, reader);
+    auto *expr = query::v2::LoadAstPointer<query::v2::Expression>(
+        &helper->ast_storage, reader);
+    self->${member}[i] = {prop, expr};
+  }
+  cpp<#)
+
+(defun clone-variant-properties (source destination)
+  #>cpp
+    if (const auto *props = std::get_if<PropertiesMapList>(&${source})) {
+      auto &destination_props = std::get<PropertiesMapList>(${destination});
+      destination_props.resize(props->size());
+      for (auto i0 = 0; i0 < props->size(); ++i0) {
+        {
+          storage::v3::PropertyId first1 = (*props)[i0].first;
+          Expression *second2;
+          second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
+          destination_props[i0] = std::make_pair(std::move(first1), std::move(second2));
+        }
+      }
+    } else {
+      ${destination} = std::get<ParameterLookup *>(${source})->Clone(storage);
+    }
+  cpp<#)
+
+(lcp:define-class scan-all (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (output-symbol "Symbol" :scope :public)
+   (view "::storage::v3::View" :scope :public
+         :documentation
+         "Controls which graph state is used to produce vertices.
+
+If @c storage::v3::View::OLD, @c ScanAll will produce vertices visible in the
+previous graph state, before modifications done by current transaction &
+command. With @c storage::v3::View::NEW, all vertices will be produced the current
+transaction sees along with their modifications.")
+    (perform_full_enumeration "bool" :scope :public))
+
+  (:documentation
+   "Operator which iterates over all the nodes currently in the database.
+When given an input (optional), does a cartesian product.
+
+It accepts an optional input. If provided then this op scans all the nodes
+currently in the database for each successful Pull from it's input, thereby
+producing a cartesian product of input Pulls and database elements.
+
+ScanAll can either iterate over the previous graph state (state before
+the current transacton+command) or over current state. This is controlled
+with a constructor argument.
+
+@sa ScanAllByLabel
+@sa ScanAllByLabelPropertyRange
+@sa ScanAllByLabelPropertyValue")
+  (:public
+   #>cpp
+   ScanAll() {}
+   ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+           storage::v3::View view = storage::v3::View::OLD);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   void PerformFullEnumeration() override;
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class produce (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (named-expressions "std::vector<NamedExpression *>" :scope :public
+                      :slk-save #'slk-save-ast-vector
+                      :slk-load (slk-load-ast-vector "NamedExpression")))
+  (:documentation
+   "A logical operator that places an arbitrary number
+of named expressions on the frame (the logical operator
+for the RETURN clause).
+
+Supports optional input. When the input is provided,
+it is Pulled from and the Produce succeeds once for
+every input Pull (typically a MATCH/RETURN query).
+When the input is not provided (typically a standalone
+RETURN clause) the Produce's pull succeeds exactly once.")
+  (:public
+   #>cpp
+   Produce() {}
+
+   Produce(const std::shared_ptr<LogicalOperator> &input,
+           const std::vector<NamedExpression *> &named_expressions);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private
+   #>cpp
+   class ProduceCursor : public Cursor {
+    public:
+     ProduceCursor(const Produce &, utils::MemoryResource *);
+     SyncGenerator<bool> Pull(MultiFrame &, ExecutionContext &) override;
+     void Shutdown() override;
+     void Reset() override;
+
+    private:
+     const Produce &self_;
+     const UniqueCursorPtr input_cursor_;
+   };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:pop-namespace) ;; distributed
+(lcp:pop-namespace) ;; plan
+(lcp:pop-namespace) ;; v2
+(lcp:pop-namespace) ;; query
+(lcp:pop-namespace) ;; memgraph
