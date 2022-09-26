@@ -138,7 +138,8 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatchingCoro_mu
   std::vector<std::vector<TypedValue>> results;
   // START COUNTING
   auto start = std::chrono::steady_clock::now();
-  while (cursor->Pull(multiframe, context)) {
+  auto gen = cursor->Pull(multiframe, context);
+  while (gen) {
     for (auto *frame : multiframe.GetFrames()) {
       auto is_ok = true;
       std::vector<TypedValue> values;
