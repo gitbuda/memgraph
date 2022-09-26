@@ -138,6 +138,8 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatchingCoro_mu
   std::vector<std::vector<TypedValue>> results;
   // START COUNTING
   auto start = std::chrono::steady_clock::now();
+  // TODO(gitbuda): It seems we need some recursive generator, e.g. something
+  // like https://gist.github.com/polytypic/17ff7693d27d8ccf53ee47beaa166f45
   auto gen = cursor->Pull(multiframe, context);
   while (gen) {
     for (auto *frame : multiframe.GetFrames()) {
