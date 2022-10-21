@@ -256,3 +256,9 @@ import_external_library(librdtsc STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
   CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
   BUILD_COMMAND $(MAKE) rdtsc)
+
+import_header_library(xxhashsb ${CMAKE_CURRENT_SOURCE_DIR})
+import_library(xxHash STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/xxHash/libxxhash.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/xxHash)
+import_header_library(xxhashct ${CMAKE_CURRENT_SOURCE_DIR})
