@@ -40,6 +40,14 @@ struct ConstraintsInfo {};
 struct StorageInfo {};
 struct StorageDataManipulationError {};
 
+// TODO(gitbuda): Figure out how to position transactional stuff in the API
+struct Transaction {};
+struct IsolationLevel {};
+struct View {};
+
+struct Indices {};
+struct Constraints {};
+struct PropertyValue {};
 struct Config {
   // properties_on_edges
 };
@@ -59,18 +67,6 @@ static_assert(std::is_standard_layout_v<EdgeRef>, "The EdgeRef must have a stand
 inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
 inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
 
-struct IsolationLevel {};
-struct PropertyValue {};
-struct View {};
-
-// EdgeAccesor depends on:
-// struct Vertex {};
-struct Transaction {};
-struct Indices {};
-struct Constraints {};
-// Config
-
-// TODO(gitbuda): Implement granular accessor objects (a lot).
 class EdgeAccessor;
 class VertexAccessor final {
  private:
@@ -178,6 +174,7 @@ class EdgeAccessor final {
   // All the write operations will still return an error if it's called for a deleted edge.
   bool for_deleted_{false};
 };
+
 struct PathAccessor {};
 struct SubgraphAccessor {};
 
