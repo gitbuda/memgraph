@@ -61,3 +61,6 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+add_manual_test(test.cpp)
+target_link_libraries(${test_prefix}test benchmark mg-utils mg-kvstore)
