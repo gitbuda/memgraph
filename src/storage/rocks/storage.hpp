@@ -71,7 +71,64 @@ struct Constraints {};
 // Config
 
 // TODO(gitbuda): Implement granular accessor objects (a lot).
-struct VertexAccessor {};
+class EdgeAccessor;
+class VertexAccessor final {
+ private:
+  friend class Storage;
+
+ public:
+  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints, Config config,
+                 bool for_deleted = false)
+      : vertex_(vertex),
+        transaction_(transaction),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config),
+        for_deleted_(for_deleted) {}
+
+  static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
+                                              Constraints *constraints, Config config, View view) {
+    throw 1;
+  }
+  bool IsVisible(View view) const { throw 1; }
+  Result<bool> AddLabel(LabelId label) { throw 1; }
+  Result<bool> RemoveLabel(LabelId label) { throw 1; }
+  Result<bool> HasLabel(LabelId label, View view) const { throw 1; }
+  Result<std::vector<LabelId>> Labels(View view) const { throw 1; }
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value) { throw 1; }
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties() { throw 1; }
+  Result<PropertyValue> GetProperty(PropertyId property, View view) const { throw 1; }
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const { throw 1; }
+  Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                            const VertexAccessor *destination = nullptr) const {
+    throw 1;
+  }
+  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                             const VertexAccessor *destination = nullptr) const {
+    throw 1;
+  }
+  Result<size_t> InDegree(View view) const { throw 1; }
+  Result<size_t> OutDegree(View view) const { throw 1; }
+  Gid Gid() const noexcept { throw 1; }
+  bool operator==(const VertexAccessor &other) const noexcept { throw 1; }
+  bool operator!=(const VertexAccessor &other) const noexcept { throw 1; }
+
+ private:
+  Vertex *vertex_;
+  Transaction *transaction_;
+  Indices *indices_;
+  Constraints *constraints_;
+  Config config_;
+  // if the accessor was created for a deleted vertex.
+  // Accessor behaves differently for some methods based on this
+  // flag.
+  // E.g. If this field is set to true, GetProperty will return the property of the node
+  // even though the node is deleted.
+  // All the write operations, and operators used for traversal (e.g. InEdges) will still
+  // return an error if it's called for a deleted vertex.
+  bool for_deleted_{false};
+};
+
 class EdgeAccessor final {
  private:
   friend class Storage;
