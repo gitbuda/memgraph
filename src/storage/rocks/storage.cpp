@@ -11,4 +11,8 @@
 
 #include "storage/rocks/storage.hpp"
 
-namespace memgraph::storage::rocks {}
+namespace memgraph::storage::rocks {
+
+VertexAccessor Storage::Accessor::CreateVertex() { throw 1; }
+
+}  // namespace memgraph::storage::rocks

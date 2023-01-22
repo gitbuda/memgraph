@@ -12,9 +12,11 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <vector>
 
+#include "storage/v2/id_types.hpp"
 #include "utils/bound.hpp"
 #include "utils/result.hpp"
 
@@ -27,6 +29,9 @@ enum class Error : uint8_t {
 template <class TValue>
 using Result = utils::BasicResult<Error, TValue>;
 
+struct Vertex {};
+struct Edge {};
+
 class AllVerticesIterable final {};
 class VerticesIterable final {};
 
@@ -35,18 +40,87 @@ struct ConstraintsInfo {};
 struct StorageInfo {};
 struct StorageDataManipulationError {};
 
-struct Config {};
-struct EdgeTypeId {};
-struct Gid {};
+struct Config {
+  // properties_on_edges
+};
+
+struct EdgeRef {
+  explicit EdgeRef(Gid gid) : gid(gid) {}
+  explicit EdgeRef(Edge *ptr) : ptr(ptr) {}
+  union {
+    Gid gid;
+    Edge *ptr;
+  };
+};
+static_assert(sizeof(Gid) == sizeof(Edge *), "The Gid should be the same size as an Edge *!");
+static_assert(std::is_standard_layout_v<Gid>, "The Gid must have a standard layout!");
+static_assert(std::is_standard_layout_v<Edge *>, "The Edge * must have a standard layout!");
+static_assert(std::is_standard_layout_v<EdgeRef>, "The EdgeRef must have a standard layout!");
+inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
+inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
+
 struct IsolationLevel {};
-struct LabelId {};
-struct PropertyId {};
 struct PropertyValue {};
 struct View {};
 
+// EdgeAccesor depends on:
+// struct Vertex {};
+struct Transaction {};
+struct Indices {};
+struct Constraints {};
+// Config
+
 // TODO(gitbuda): Implement granular accessor objects (a lot).
 struct VertexAccessor {};
-struct EdgeAccessor {};
+class EdgeAccessor final {
+ private:
+  friend class Storage;
+
+ public:
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
+               Indices *indices, Constraints *constraints, Config config, bool for_deleted = false)
+      : edge_(edge),
+        edge_type_(edge_type),
+        from_vertex_(from_vertex),
+        to_vertex_(to_vertex),
+        transaction_(transaction),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config),
+        for_deleted_(for_deleted) {}
+
+  bool IsVisible(View view) const { throw 1; }
+  VertexAccessor FromVertex() const { throw 1; }
+  VertexAccessor ToVertex() const { throw 1; }
+  EdgeTypeId EdgeType() const { throw 1; }
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value) { throw 1; }
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties() { throw 1; }
+  Result<PropertyValue> GetProperty(PropertyId property, View view) const { throw 1; }
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const { throw 1; }
+  Gid Gid() const noexcept { throw 1; }
+  bool IsCycle() const { throw 1; }
+  bool operator==(const EdgeAccessor &other) const noexcept {
+    return edge_ == other.edge_ && transaction_ == other.transaction_;
+  }
+  bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
+
+ private:
+  EdgeRef edge_;
+  EdgeTypeId edge_type_;
+  Vertex *from_vertex_;
+  Vertex *to_vertex_;
+  Transaction *transaction_;
+  Indices *indices_;
+  Constraints *constraints_;
+  Config config_;
+  // if the accessor was created for a deleted edge.
+  // Accessor behaves differently for some methods based on this
+  // flag.
+  // E.g. If this field is set to true, GetProperty will return the property of the edge
+  // even though the edge is deleted.
+  // All the write operations will still return an error if it's called for a deleted edge.
+  bool for_deleted_{false};
+};
 struct PathAccessor {};
 struct SubgraphAccessor {};
 
@@ -77,7 +151,7 @@ class Storage final {
     //   * labels
     //   * primary key
     //   * other props
-    VertexAccessor CreateVertex() { throw 1; }
+    VertexAccessor CreateVertex();
     std::optional<VertexAccessor> FindVertex(Gid git, View view) { throw 1; }
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) { throw 1; }
     Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
