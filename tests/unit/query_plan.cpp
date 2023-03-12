@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -659,6 +659,30 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
                                    WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter()};
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectOptional(optional), ExpectProduce());
+  DeleteListContent(&optional);
+}
+
+TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
+  // Test MATCH (n:Label) OPTIONAL MATCH (m:Label) WHERE n.prop = m.prop RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR("prop");
+  dba.SetIndexCount(label, property.second, 0);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", label_name))), OPTIONAL_MATCH(PATTERN(NODE("m", label_name))),
+      WHERE(EQ(PROPERTY_LOOKUP("n", property.second), PROPERTY_LOOKUP("m", property.second))), RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+
+  auto m_prop = PROPERTY_LOOKUP("m", property);
+  std::list<BaseOpChecker *> optional{new ExpectScanAllByLabelPropertyValue(label, property, m_prop)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectOptional(optional), ExpectProduce());
   DeleteListContent(&optional);
 }
 
@@ -1684,6 +1708,146 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto *query =
         QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
     CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
+  }
+
+  {
+    // FOREACH with index
+    // FOREACH (n in [...] | MERGE (v:Label));
+    const auto label_name = "label";
+    const auto label = dba.Label(label_name);
+    dba.SetIndexCount(label, 0);
+
+    auto *n = NEXPR("n", IDENT("n"));
+    auto *query = QUERY(SINGLE_QUERY(FOREACH(n, {MERGE(PATTERN(NODE("v", label_name)))})));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+
+    std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+
+    auto create = ExpectMerge(on_match, on_create);
+    std::list<BaseOpChecker *> updates{&create};
+    std::list<BaseOpChecker *> input;
+    CheckPlan(planner.plan(), symbol_table, ExpectForeach(input, updates), ExpectEmptyResult());
+
+    DeleteListContent(&on_match);
+    DeleteListContent(&on_create);
+  }
+}
+
+TYPED_TEST(TestPlanner, Exists) {
+  AstStorage storage;
+  FakeDbAccessor dba;
+
+  // MATCH (n) WHERE exists((n)-[]-())
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                             NODE("node", std::nullopt, false)))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
+  // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two))
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                             NODE("node", "Two", false)))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                              new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
+  // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two)) AND exists((n)-[]-())
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                 NODE("node", "Two", false))),
+                  EXISTS(PATTERN(NODE("n"), EDGE("edge2", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                 NODE("node2", std::nullopt, false))))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter_with_types{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                                         new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectLimit(),
+                                                            new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(
+        planner.plan(), symbol_table, ExpectScanAll(),
+        ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter_without_types, pattern_filter_with_types}),
+        ExpectProduce());
+
+    DeleteListContent(&pattern_filter_with_types);
+    DeleteListContent(&pattern_filter_without_types);
+  }
+
+  // MATCH (n) WHERE n.prop = 1 AND exists((n)-[:TYPE]-(:Two))
+  {
+    auto property = dba.Property("prop");
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                 NODE("node", "Two", false))),
+                  PROPERTY_LOOKUP("n", property))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                              new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
+  // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two)) OR exists((n)-[]-())
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(OR(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                NODE("node", "Two", false))),
+                 EXISTS(PATTERN(NODE("n"), EDGE("edge2", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                NODE("node2", std::nullopt, false))))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter_with_types{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                                         new ExpectEvaluatePatternFilter()};
+    std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectLimit(),
+                                                            new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(
+        planner.plan(), symbol_table, ExpectScanAll(),
+        ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter_with_types, pattern_filter_without_types}),
+        ExpectProduce());
+
+    DeleteListContent(&pattern_filter_with_types);
+    DeleteListContent(&pattern_filter_without_types);
   }
 }
 }  // namespace
