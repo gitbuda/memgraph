@@ -13,9 +13,20 @@
 
 #include <optional>
 
+#include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "storage/rocks/slk.hpp"
 #include "storage/rocks/vertex.hpp"
+
+namespace memgraph::slk {
+
+void Save(const storage::rocks::Vertex &value, slk::Builder *builder) { slk::Save(value.id, builder); }
+void Load(storage::rocks::Vertex *value, slk::Reader *reader) {
+  int64_t id;
+  slk::Load(&id, reader);
+  value->id = id;
+}
+
+}  // namespace memgraph::slk
 
 namespace memgraph::storage::rocks {
 
