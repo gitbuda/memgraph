@@ -16,6 +16,7 @@
 #include <optional>
 #include <vector>
 
+#include "storage/rocks/vertex.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/bound.hpp"
 #include "utils/result.hpp"
@@ -29,7 +30,6 @@ enum class Error : uint8_t {
 template <class TValue>
 using Result = utils::BasicResult<Error, TValue>;
 
-struct Vertex {};
 struct Edge {};
 
 class AllVerticesIterable final {};
