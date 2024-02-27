@@ -54,6 +54,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(IfOperator &op) override;
   void Visit(ListLiteral &op) override;
   void Visit(MapLiteral &op) override;
+  void Visit(MapProjectionLiteral &op) override;
   void Visit(LabelsTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
@@ -68,9 +69,11 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override;
   void Visit(PrimitiveLiteral &op) override;
   void Visit(PropertyLookup &op) override;
+  void Visit(AllPropertiesLookup &op) override;
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
+  void Visit(PatternComprehension &op) override;
 
  private:
   std::ostream *out_;
@@ -89,6 +92,8 @@ void PrintObject(std::ostream *out, Aggregation::Op op);
 
 void PrintObject(std::ostream *out, Expression *expr);
 
+void PrintObject(std::ostream *out, AllPropertiesLookup *apl);
+
 void PrintObject(std::ostream *out, Identifier *expr);
 
 void PrintObject(std::ostream *out, const storage::PropertyValue &value);
@@ -101,7 +106,7 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map);
 
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
-  static_assert(!std::is_convertible<T, Expression *>::value,
+  static_assert(!std::is_convertible_v<T, Expression *>,
                 "This overload shouldn't be called with pointers convertible "
                 "to Expression *. This means your other PrintObject overloads aren't "
                 "being called for certain AST nodes when they should (or perhaps such "
@@ -117,6 +122,15 @@ void PrintObject(std::ostream *out, Expression *expr) {
   if (expr) {
     ExpressionPrettyPrinter printer{out};
     expr->Accept(printer);
+  } else {
+    *out << "<null>";
+  }
+}
+
+void PrintObject(std::ostream *out, AllPropertiesLookup *apl) {
+  if (apl) {
+    ExpressionPrettyPrinter printer{out};
+    *out << ".*";
   } else {
     *out << "<null>";
   }
@@ -249,6 +263,17 @@ void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
   PrintObject(out_, map);
 }
 
+void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
+  std::map<std::string, Expression *> map_projection_elements;
+  for (const auto &kv : op.elements_) {
+    map_projection_elements[kv.first.name] = kv.second;
+  }
+  PrintObject(out_, op.map_variable_);
+  PrintObject(out_, map_projection_elements);
+}
+
+void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
+
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, "LabelsTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, "Aggregation", op.op_); }
@@ -298,6 +323,10 @@ void ExpressionPrettyPrinter::Visit(NamedExpression &op) {
 }
 
 void ExpressionPrettyPrinter::Visit(RegexMatch &op) { PrintOperator(out_, "=~", op.string_expr_, op.regex_); }
+
+void ExpressionPrettyPrinter::Visit(PatternComprehension &op) {
+  PrintOperator(out_, "Pattern Comprehension", op.variable_, op.pattern_, op.filter_, op.resultExpr_);
+}
 
 }  // namespace
 

@@ -1,23 +1,38 @@
 name: Release Debian 10
 
 on:
+  workflow_call:
+    inputs:
+      build_type:
+        type: string
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
   workflow_dispatch:
-  schedule:
-    - cron: "0 22 * * *"
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+
+env:
+  OS: "Debian10"
+  THREADS: 24
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
 
 jobs:
   community_build:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -33,7 +48,7 @@ jobs:
 
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -52,10 +67,11 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -97,22 +113,19 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Coverage build)-${{ env.OS }}"
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -144,25 +157,6 @@ jobs:
         run: |
           ./tests/drivers/run.sh
 
-      - name: Run integration tests
-        run: |
-          cd tests/integration
-          for name in *; do
-            if [ ! -d $name ]; then continue; fi
-            pushd $name >/dev/null
-            echo "Running: $name"
-            if [ -x prepare.sh ]; then
-              ./prepare.sh
-            fi
-            if [ -x runner.py ]; then
-              ./runner.py
-            elif [ -x runner.sh ]; then
-              ./runner.sh
-            fi
-            echo
-            popd >/dev/null
-          done
-
       - name: Run cppcheck and clang-format
         run: |
           # Activate toolchain.
@@ -173,23 +167,49 @@ jobs:
           ./cppcheck_and_clang_format diff
 
       - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Debug build)-${{ env.OS }}"
           path: tools/github/cppcheck_and_clang_format.txt
+
+  debug_integration_test:
+    name: "Debug integration tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build debug binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build debug binaries.
+          cd build
+          cmake ..
+          make -j$THREADS
+
+      - name: Run integration tests
+        run: |
+          tests/integration/run.sh
 
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -205,7 +225,7 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS
 
       - name: Create enterprise DEB package
@@ -224,10 +244,59 @@ jobs:
           cpack -G DEB --config ../CPackConfig.cmake
 
       - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package"
+          name: "Enterprise DEB package-${{ env.OS}}"
           path: build/output/memgraph*.deb
+
+      - name: Run GQL Behave tests
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
+          ./continuous_integration
+
+      - name: Save quality assurance status
+        uses: actions/upload-artifact@v4
+        with:
+          name: "GQL Behave Status-${{ env.OS }}"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure
+
+  release_benchmark_tests:
+    name: "Release Benchmark Tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+          # Build release binaries
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
 
       - name: Run micro benchmark tests
         run: |
@@ -255,36 +324,79 @@ jobs:
             --num-database-workers 9 --num-clients-workers 30 \
             --no-strict
 
-      - name: Run GQL Behave tests
-        run: |
-          cd tests/gql_behave
-          ./continuous_integration
+  release_e2e_test:
+    name: "Release End-to-end Test"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 60
 
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
         with:
-          name: "GQL Behave Status"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
 
-      - name: Run unit tests
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+          # Build release binaries
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
+
+      - name: Ensure Kafka and Pulsar are up
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
+
+      - name: Run e2e tests
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
+          cd e2e
+          ./run.sh
+
+      - name: Ensure Kafka and Pulsar are down
+        if: always()
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
+
+  release_durability_stress_tests:
+    name: "Release durability and stress tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
 
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure
+          # Initialize dependencies.
+          ./init
 
-      - name: Run e2e tests
-        run: |
-          # TODO(gitbuda): Setup mgclient and pymgclient properly.
-          cd tests
-          ./setup.sh
-          source ve3/bin/activate
-          cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory .
+          # Build release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
 
       - name: Run stress test (plain)
         run: |
@@ -295,11 +407,6 @@ jobs:
         run: |
           cd tests/stress
           ./continuous_integration --use-ssl
-
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
 
       - name: Run durability test (plain)
         run: |
@@ -316,15 +423,11 @@ jobs:
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     timeout-minutes: 60
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -334,23 +437,27 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
           # Initialize dependencies.
           ./init
 
           # Build only memgraph release binary.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS memgraph
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
 
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test --binary ../../build/memgraph --run-args "test-all --node-configs resources/node-config.edn" --ignore-run-stdout-logs --ignore-run-stderr-logs
+          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: "Jepsen Report"
+          name: "Jepsen Report-${{ env.OS }}"
           path: tests/jepsen/Jepsen.tar.gz

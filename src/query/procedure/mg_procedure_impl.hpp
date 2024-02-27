@@ -435,28 +435,24 @@ struct mgp_vertex {
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_vertex>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<memgraph::query::VertexAccessor>);
-
-  mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(v), graph(graph) {}
 
-  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph,
-             memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(v), graph(graph) {}
 
-  mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
-  mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
-  mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
+  mgp_vertex(mgp_vertex &&other) : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
     return std::visit(
-        memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
+        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &impl) { return impl; },
                                     [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
         this->impl);
   }
@@ -486,33 +482,28 @@ struct mgp_edge {
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_edge>;
 
-  // Hopefully EdgeAccessor copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<memgraph::query::EdgeAccessor>);
-
   static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
 
-  mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::VertexAccessor &from_v,
-           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory) noexcept
+           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::SubgraphVertexAccessor &from_v,
            const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory) noexcept
+           memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
 
-  mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory)
       : memory(memory), impl(other.impl), from(other.from, memory), to(other.to, memory) {}
 
-  mgp_edge(mgp_edge &&other, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edge(mgp_edge &&other, memgraph::utils::MemoryResource *memory)
       : memory(other.memory), impl(other.impl), from(std::move(other.from), memory), to(std::move(other.to), memory) {}
 
-  mgp_edge(mgp_edge &&other) noexcept
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
+  mgp_edge(mgp_edge &&other)
       : memory(other.memory), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -569,23 +560,24 @@ struct mgp_graph {
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
+  memgraph::storage::StorageMode storage_mode;
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
+    return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};
   }
 
   static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
+    return mgp_graph{&acc, view, nullptr, acc.GetStorageMode()};
   }
 
   static mgp_graph WritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
+    return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};
   }
 
   static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
+    return mgp_graph{&acc, view, nullptr, acc.GetStorageMode()};
   }
 };
 
@@ -594,6 +586,8 @@ struct mgp_result_record {
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
   memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  bool ignore_deleted_values = false;
+  bool has_deleted_values = false;
 };
 
 struct mgp_result {
@@ -608,6 +602,7 @@ struct mgp_result {
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
+  bool is_transactional = true;
 };
 
 struct mgp_func_result {
@@ -623,6 +618,7 @@ struct mgp_func_context {
   memgraph::query::DbAccessor *impl;
   memgraph::storage::View view;
 };
+
 struct mgp_properties_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_properties_iterator>;
 
@@ -671,14 +667,12 @@ struct mgp_properties_iterator {
 
 struct mgp_edges_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_edges_iterator>;
-  // Hopefully mgp_vertex copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &, memgraph::utils::MemoryResource *>);
 
-  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory)
       : memory(memory), source_vertex(v, memory) {}
 
-  mgp_edges_iterator(mgp_edges_iterator &&other) noexcept
+  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
+  mgp_edges_iterator(mgp_edges_iterator &&other)
       : memory(other.memory),
         source_vertex(std::move(other.source_vertex)),
         in(std::move(other.in)),
@@ -698,12 +692,14 @@ struct mgp_edges_iterator {
   memgraph::utils::MemoryResource *memory;
   mgp_vertex source_vertex;
 
-  std::optional<std::remove_reference_t<
-      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).InEdges(source_vertex.graph->view))>>
+  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
+                                                     .InEdges(source_vertex.graph->view)
+                                                     ->edges)>>
       in;
   std::optional<decltype(in->begin())> in_it;
-  std::optional<std::remove_reference_t<
-      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).OutEdges(source_vertex.graph->view))>>
+  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
+                                                     .OutEdges(source_vertex.graph->view)
+                                                     ->edges)>>
       out;
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
@@ -729,9 +725,11 @@ struct mgp_type {
 };
 
 struct ProcedureInfo {
-  bool is_write = false;
+  bool is_write{false};
+  bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };
+
 struct mgp_proc {
   using allocator_type = memgraph::utils::Allocator<mgp_proc>;
 
@@ -739,6 +737,33 @@ struct mgp_proc {
   /// @throw std::length_error
   mgp_proc(const char *name, mgp_proc_cb cb, memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
       : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, mgp_proc_cb cb, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory),
+        cb(cb),
+        initializer(initializer),
+        cleanup(cleanup),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        info(info) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           std::function<void(mgp_list *, mgp_graph *, mgp_memory *)> initializer, std::function<void()> cleanup,
+           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory),
+        cb(cb),
+        initializer(initializer),
+        cleanup(cleanup),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -757,6 +782,8 @@ struct mgp_proc {
   mgp_proc(const mgp_proc &other, memgraph::utils::MemoryResource *memory)
       : name(other.name, memory),
         cb(other.cb),
+        initializer(other.initializer),
+        cleanup(other.cleanup),
         args(other.args, memory),
         opt_args(other.opt_args, memory),
         results(other.results, memory),
@@ -765,6 +792,8 @@ struct mgp_proc {
   mgp_proc(mgp_proc &&other, memgraph::utils::MemoryResource *memory)
       : name(std::move(other.name), memory),
         cb(std::move(other.cb)),
+        initializer(other.initializer),
+        cleanup(other.cleanup),
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
         results(std::move(other.results), memory),
@@ -782,6 +811,13 @@ struct mgp_proc {
   memgraph::utils::pmr::string name;
   /// Entry-point for the procedure.
   std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+
+  /// Initializer for batched procedure.
+  std::optional<std::function<void(mgp_list *, mgp_graph *, mgp_memory *)>> initializer;
+
+  /// Dtor for batched procedure.
+  std::optional<std::function<void()>> cleanup;
+
   /// Required, positional arguments as a (name, type) pair.
   memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *>>
       args;
@@ -953,5 +989,7 @@ struct mgp_messages {
 
   storage_type messages;
 };
+
+bool ContainsDeleted(const mgp_value *val);
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);

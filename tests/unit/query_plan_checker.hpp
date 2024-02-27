@@ -11,18 +11,22 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <climits>
+#include <utility>
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
 
 class BaseOpChecker {
  public:
-  virtual ~BaseOpChecker() {}
+  virtual ~BaseOpChecker() = default;
 
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
@@ -113,6 +117,27 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(HashJoin &op) override {
+    CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(IndexedJoin &op) override {
+    CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(Apply &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(Union &op) override {
+    CheckOp(op);
+    return false;
+  }
+
   PRE_VISIT(CallProcedure);
 
 #undef PRE_VISIT
@@ -165,7 +190,7 @@ using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
+  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
       : pattern_filters_(pattern_filters) {}
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
@@ -173,6 +198,29 @@ class ExpectFilter : public OpChecker<Filter> {
       PlanChecker check_updates(pattern_filters_[i], symbol_table);
 
       filter.pattern_filters_[i]->Accept(check_updates);
+    }
+    // ordering in AND Operator must be ..., exists, exists, exists.
+    auto *expr = filter.expression_;
+    std::vector<Expression *> filter_expressions;
+    while (auto *and_operator = utils::Downcast<AndOperator>(expr)) {
+      auto *expr1 = and_operator->expression1_;
+      auto *expr2 = and_operator->expression2_;
+      filter_expressions.emplace_back(expr1);
+      expr = expr2;
+    }
+    if (expr) filter_expressions.emplace_back(expr);
+
+    auto it = filter_expressions.begin();
+    for (; it != filter_expressions.end(); it++) {
+      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+        break;
+      }
+    }
+    while (it != filter_expressions.end()) {
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
+          << "'!";
+      it++;
     }
   }
 
@@ -196,6 +244,36 @@ class ExpectForeach : public OpChecker<Foreach> {
  private:
   std::list<BaseOpChecker *> input_;
   std::list<BaseOpChecker *> updates_;
+};
+
+class ExpectApply : public OpChecker<Apply> {
+ public:
+  explicit ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+
+  void ExpectOp(Apply &apply, const SymbolTable &symbol_table) override {
+    PlanChecker check_subquery(subquery_, symbol_table);
+    apply.subquery_->Accept(check_subquery);
+  }
+
+ private:
+  std::list<BaseOpChecker *> subquery_;
+};
+
+class ExpectUnion : public OpChecker<Union> {
+ public:
+  ExpectUnion(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(Union &union_op, const SymbolTable &symbol_table) override {
+    PlanChecker check_left_op(left_, symbol_table);
+    union_op.left_op_->Accept(check_left_op);
+    PlanChecker check_right_op(left_, symbol_table);
+    union_op.right_op_->Accept(check_right_op);
+  }
+
+ private:
+  std::list<BaseOpChecker *> left_;
+  std::list<BaseOpChecker *> right_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
@@ -235,7 +313,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     auto aggr_it = aggregations_.begin();
     for (const auto &aggr_elem : op.aggregations_) {
       ASSERT_NE(aggr_it, aggregations_.end());
-      auto aggr = *aggr_it++;
+      auto *aggr = *aggr_it++;
       // TODO: Proper expression equality
       EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
       EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
@@ -363,8 +441,7 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
 
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
-  ExpectCartesian(const std::list<std::unique_ptr<BaseOpChecker>> &left,
-                  const std::list<std::unique_ptr<BaseOpChecker>> &right)
+  ExpectCartesian(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
       : left_(left), right_(right) {}
 
   void ExpectOp(Cartesian &op, const SymbolTable &symbol_table) override {
@@ -377,15 +454,53 @@ class ExpectCartesian : public OpChecker<Cartesian> {
   }
 
  private:
-  const std::list<std::unique_ptr<BaseOpChecker>> &left_;
-  const std::list<std::unique_ptr<BaseOpChecker>> &right_;
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
+};
+
+class ExpectHashJoin : public OpChecker<HashJoin> {
+ public:
+  ExpectHashJoin(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(HashJoin &op, const SymbolTable &symbol_table) override {
+    ASSERT_TRUE(op.left_op_);
+    PlanChecker left_checker(left_, symbol_table);
+    op.left_op_->Accept(left_checker);
+    ASSERT_TRUE(op.right_op_);
+    PlanChecker right_checker(right_, symbol_table);
+    op.right_op_->Accept(right_checker);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &left_;
+  const std::list<BaseOpChecker *> &right_;
+};
+
+class ExpectIndexedJoin : public OpChecker<IndexedJoin> {
+ public:
+  ExpectIndexedJoin(const std::list<BaseOpChecker *> &main_branch, const std::list<BaseOpChecker *> &sub_branch)
+      : main_branch_(main_branch), sub_branch_(sub_branch) {}
+
+  void ExpectOp(IndexedJoin &op, const SymbolTable &symbol_table) override {
+    ASSERT_TRUE(op.main_branch_);
+    PlanChecker main_branch_checker(main_branch_, symbol_table);
+    op.main_branch_->Accept(main_branch_checker);
+    ASSERT_TRUE(op.sub_branch_);
+    PlanChecker sub_branch_checker(sub_branch_, symbol_table);
+    op.sub_branch_->Accept(sub_branch_checker);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &main_branch_;
+  const std::list<BaseOpChecker *> &sub_branch_;
 };
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
  public:
-  ExpectCallProcedure(const std::string &name, const std::vector<memgraph::query::Expression *> &args,
+  ExpectCallProcedure(std::string name, const std::vector<memgraph::query::Expression *> &args,
                       const std::vector<std::string> &fields, const std::vector<Symbol> &result_syms)
-      : name_(name), args_(args), fields_(fields), result_syms_(result_syms) {}
+      : name_(std::move(name)), args_(args), fields_(fields), result_syms_(result_syms) {}
 
   void ExpectOp(CallProcedure &op, const SymbolTable &symbol_table) override {
     EXPECT_EQ(op.procedure_name_, name_);
@@ -425,8 +540,7 @@ template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
-  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-  return TPlanner(single_query_parts, planning_context);
+  return TPlanner(query_parts, planning_context);
 }
 
 class FakeDbAccessor {
@@ -438,7 +552,7 @@ class FakeDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (auto &index : label_property_index_) {
+    for (const auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
       }
@@ -451,12 +565,21 @@ class FakeDbAccessor {
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (auto &index : label_property_index_) {
+    for (const auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
       }
     }
     return false;
+  }
+
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
+    return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
+  }
+
+  std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
+    return memgraph::storage::LabelIndexStats{.count = 0, .avg_degree = 0};  // unique id
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }

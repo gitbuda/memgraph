@@ -30,121 +30,68 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), 
 PRE_VISIT(CreateNode);
 
 bool PlanPrinter::PreVisit(CreateExpand &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* CreateExpand (" << op.input_symbol_.name() << ")"
-        << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
-        << op.edge_info_.symbol.name() << ":" << dba_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
-        << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
-        << op.node_info_.symbol.name() << ")";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 PRE_VISIT(Delete);
 
 bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* ScanAll"
-        << " (" << op.output_symbol_.name() << ")";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* ScanAllByLabel"
-        << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << ")";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* ScanAllByLabelPropertyValue"
-        << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << " {"
-        << dba_->PropertyToName(op.property_) << "})";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* ScanAllByLabelPropertyRange"
-        << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << " {"
-        << dba_->PropertyToName(op.property_) << "})";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperty &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* ScanAllByLabelProperty"
-        << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << " {"
-        << dba_->PropertyToName(op.property_) << "})";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(ScanAllById &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* ScanAllById"
-        << " (" << op.output_symbol_.name() << ")";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
-  WithPrintLn([&](auto &out) {
-    *out_ << "* Expand (" << op.input_symbol_.name() << ")"
-          << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
-          << op.common_.edge_symbol.name();
-    utils::PrintIterable(*out_, op.common_.edge_types, "|", [this](auto &stream, const auto &edge_type) {
-      stream << ":" << dba_->EdgeTypeToName(edge_type);
-    });
-    *out_ << "]" << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
-          << op.common_.node_symbol.name() << ")";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
-  using Type = query::EdgeAtom::Type;
-  WithPrintLn([&](auto &out) {
-    *out_ << "* ";
-    switch (op.type_) {
-      case Type::DEPTH_FIRST:
-        *out_ << "ExpandVariable";
-        break;
-      case Type::BREADTH_FIRST:
-        *out_ << (op.common_.existing_node ? "STShortestPath" : "BFSExpand");
-        break;
-      case Type::WEIGHTED_SHORTEST_PATH:
-        *out_ << "WeightedShortestPath";
-        break;
-      case Type::ALL_SHORTEST_PATHS:
-        *out_ << "AllShortestPaths";
-        break;
-      case Type::SINGLE:
-        LOG_FATAL("Unexpected ExpandVariable::type_");
-    }
-    *out_ << " (" << op.input_symbol_.name() << ")"
-          << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
-          << op.common_.edge_symbol.name();
-    utils::PrintIterable(*out_, op.common_.edge_types, "|", [this](auto &stream, const auto &edge_type) {
-      stream << ":" << dba_->EdgeTypeToName(edge_type);
-    });
-    *out_ << "]" << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
-          << op.common_.node_symbol.name() << ")";
-  });
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Produce &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* Produce {";
-    utils::PrintIterable(out, op.named_expressions_, ", ", [](auto &out, const auto &nexpr) { out << nexpr->name_; });
-    out << "}";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -154,20 +101,12 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
-PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
-  WithPrintLn([&](auto &out) {
-    out << "* Aggregate {";
-    utils::PrintIterable(out, op.aggregations_, ", ",
-                         [](auto &out, const auto &aggr) { out << aggr.output_sym.name(); });
-    out << "} {";
-    utils::PrintIterable(out, op.remember_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << "}";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -175,11 +114,7 @@ PRE_VISIT(Skip);
 PRE_VISIT(Limit);
 
 bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
-  WithPrintLn([&op](auto &out) {
-    out << "* OrderBy {";
-    utils::PrintIterable(out, op.output_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << "}";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -202,29 +137,19 @@ PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  WithPrintLn([&op](auto &out) {
-    out << "* Union {";
-    utils::PrintIterable(out, op.left_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << " : ";
-    utils::PrintIterable(out, op.right_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << "}";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
-  WithPrintLn([&op](auto &out) {
-    out << "* CallProcedure<" << op.procedure_name_ << "> {";
-    utils::PrintIterable(out, op.result_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
-    out << "}";
-  });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
-  WithPrintLn([&op](auto &out) { out << "* LoadCsv {" << op.row_var_.name() << "}"; });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -246,6 +171,13 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  Branch(*op.right_op_);
+  op.left_op_->Accept(*this);
+  return false;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
   WithPrintLn([](auto &out) { out << "* Foreach"; });
   Branch(*op.update_clauses_);
@@ -254,11 +186,30 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  WithPrintLn([](auto &out) { out << "* Filter"; });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
   op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::Apply &op) {
+  WithPrintLn([](auto &out) { out << "* Apply"; });
+  Branch(*op.subquery_);
+  op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
+  WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
+  Branch(*op.sub_branch_);
+  op.main_branch_->Accept(*this);
   return false;
 }
 #undef PRE_VISIT
@@ -867,11 +818,31 @@ bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
 bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
   json self;
   self["name"] = "LoadCsv";
-  self["file"] = ToJson(op.file_);
-  self["with_header"] = op.with_header_;
-  self["ignore_bad"] = op.ignore_bad_;
-  self["delimiter"] = ToJson(op.delimiter_);
-  self["quote"] = ToJson(op.quote_);
+
+  if (op.file_) {
+    self["file"] = ToJson(op.file_);
+  }
+
+  if (op.with_header_) {
+    self["with_header"] = op.with_header_;
+  }
+
+  if (op.ignore_bad_) {
+    self["ignore_bad"] = op.ignore_bad_;
+  }
+
+  if (op.delimiter_) {
+    self["delimiter"] = ToJson(op.delimiter_);
+  }
+
+  if (op.quote_) {
+    self["quote"] = ToJson(op.quote_);
+  }
+
+  if (op.nullif_) {
+    self["nullif"] = ToJson(op.nullif_);
+  }
+
   self["row_variable"] = ToJson(op.row_var_);
 
   op.input_->Accept(*this);
@@ -926,6 +897,20 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(HashJoin &op) {
+  json self;
+  self["name"] = "HashJoin";
+
+  op.left_op_->Accept(*this);
+  self["left_op"] = PopOutput();
+
+  op.right_op_->Accept(*this);
+  self["right_op"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   json self;
   self["name"] = "Foreach";
@@ -949,6 +934,34 @@ bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Apply &op) {
+  json self;
+  self["name"] = "Apply";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.subquery_->Accept(*this);
+  self["subquery"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
+  json self;
+  self["name"] = "IndexedJoin";
+
+  op.main_branch_->Accept(*this);
+  self["left"] = PopOutput();
+
+  op.sub_branch_->Accept(*this);
+  self["right"] = PopOutput();
 
   output_ = std::move(self);
   return false;

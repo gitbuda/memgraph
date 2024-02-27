@@ -219,3 +219,75 @@ Feature: List operators
             | [[1], 2] |
             | [3]      |
             | 4        |
+
+    Scenario: Unwind + InList test1
+        When executing query:
+            """
+            UNWIND [[1,2], [3,4]] as l
+            RETURN 2 in l as x
+            """
+        Then the result should be:
+            | x     |
+            | true  |
+            | false |
+
+    Scenario: Unwind + InList test2
+        When executing query:
+            """
+            WITH [[1,2], [3,4]] as list
+            UNWIND list as l
+            RETURN 2 in l as x
+            """
+        Then the result should be:
+            | x     |
+            | true  |
+            | false |
+
+     Scenario: Unwind + InList test3
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({id: 1}), ({id: 2}), ({id: 3}), ({id: 4})
+            """
+        When executing query:
+            """
+            WITH [1, 2, 3] as list
+            MATCH (n) WHERE n.id in list
+            WITH n
+            WITH n, [1, 2] as list
+            WHERE n.id in list
+            RETURN n.id as id
+            ORDER BY id;
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+            | 2  |
+
+     Scenario: InList 01
+        Given an empty graph
+        And having executed
+            """
+            CREATE (o:Node) SET o.Status = 'This is the status';
+            """
+        When executing query:
+            """
+            match (o:Node)
+            where o.Status IN ['This is not the status', 'This is the status']
+            return o;
+            """
+        Then the result should be:
+            | o                                       |
+            | (:Node {Status: 'This is the status'})  |
+
+     Scenario: Simple list pattern comprehension
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
+            """
+        Then an error should be raised
+#        Then the result should be:
+#            | years                 |
+#            | [2021,2003,2003,1999] |

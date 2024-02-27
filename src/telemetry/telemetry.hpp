@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include <json/json.hpp>
 
+#include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
@@ -35,9 +36,28 @@ namespace memgraph::telemetry {
 class Telemetry final {
  public:
   Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
+            bool ssl, std::filesystem::path root_directory,
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
+  // Generic/user-defined collector
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
+
+  // Specialized collectors
+  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                           memgraph::replication::ReplicationState &repl_state);
+
+#ifdef MG_ENTERPRISE
+  void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replication::ReplicationState &repl_state);
+#else
+  void AddDatabaseCollector() {
+    AddCollector("database", []() -> nlohmann::json { return nlohmann::json::array(); });
+  }
+#endif
+  void AddClientCollector();
+  void AddEventsCollector();
+  void AddQueryModuleCollector();
+  void AddExceptionCollector();
+  void AddReplicationCollector();
 
   ~Telemetry();
 
@@ -56,6 +76,7 @@ class Telemetry final {
   const std::string url_;
   const std::string uuid_;
   const std::string machine_id_;
+  const bool ssl_;
   uint64_t num_{0};
   utils::Scheduler scheduler_;
   utils::Timer timer_;

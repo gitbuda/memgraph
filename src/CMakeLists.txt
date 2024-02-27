@@ -1,7 +1,7 @@
 # CMake configuration for the main memgraph library and executable
 
 # add memgraph sub libraries, ordered by dependency
-add_subdirectory(lisp)
+add_subdirectory(csv)
 add_subdirectory(utils)
 add_subdirectory(requests)
 add_subdirectory(io)
@@ -18,10 +18,15 @@ add_subdirectory(slk)
 add_subdirectory(rpc)
 add_subdirectory(license)
 add_subdirectory(auth)
-
-if(MG_ENTERPRISE)
-        add_subdirectory(audit)
-endif()
+add_subdirectory(audit)
+add_subdirectory(dbms)
+add_subdirectory(flags)
+add_subdirectory(distributed)
+add_subdirectory(replication)
+add_subdirectory(replication_handler)
+add_subdirectory(coordination)
+add_subdirectory(replication_coordination_glue)
+add_subdirectory(system)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -37,21 +42,14 @@ set(mg_single_node_v2_sources
         memgraph.cpp
 )
 
-set(mg_single_node_v2_libs stdc++fs Threads::Threads
-        mg-telemetry mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-glue)
-
-if(MG_ENTERPRISE)
-        # These are enterprise subsystems
-        set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-audit)
-endif()
-
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(memgraph ${mg_single_node_v2_libs})
+target_link_libraries(memgraph stdc++fs Threads::Threads
+        mg-telemetry mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
-# should be dynamically exported, so that `dlopen` can correctly link the
+# should be dynamically exported, so that `dlopen` can correctly link th
 # symbols in custom procedure module libraries.
 target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 set_target_properties(memgraph PROPERTIES
@@ -60,7 +58,10 @@ set_target_properties(memgraph PROPERTIES
         OUTPUT_NAME "memgraph-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
 
         # Output the executable in main binary dir.
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+
+        POSITION_INDEPENDENT_CODE ON
+        )
 
 # Create symlink to the built executable.
 add_custom_command(TARGET memgraph POST_BUILD
@@ -81,7 +82,7 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
-# Generate the configuration file.
+# Generate the configuration file under the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
         ${CMAKE_BINARY_DIR}/memgraph
@@ -90,6 +91,11 @@ add_custom_command(TARGET memgraph POST_BUILD
         ${CMAKE_SOURCE_DIR}/config/flags.yaml
         BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
         COMMENT "Generating memgraph configuration file")
+# Copy the mappings file to the build directory.
+add_custom_command(TARGET memgraph POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_SOURCE_DIR}/config/mappings.json
+        ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json)
 
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
@@ -125,6 +131,9 @@ install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.hpp
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
+# Install the mappings file (must use absolute path).
+install(FILES ${CMAKE_BINARY_DIR}/config/apoc_compatibility_mappings.json
+        DESTINATION /etc/memgraph RENAME apoc_compatibility_mappings.json)
 
 # Install logrotate configuration (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
@@ -142,7 +151,7 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------
 add_executable(mg_import_csv mg_import_csv.cpp)
-target_link_libraries(mg_import_csv mg-storage-v2)
+target_link_libraries(mg_import_csv mg-storage-v2 mg-dbms)
 
 # Strip the executable in release build.
 if(lower_build_type STREQUAL "release")

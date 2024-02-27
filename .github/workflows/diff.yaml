@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -43,7 +43,7 @@ jobs:
 
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -96,12 +96,12 @@ jobs:
 
       - name: Python code analysis
         run: |
-          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
+          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only --diff-filter=d)
           for file in ${CHANGED_FILES}; do
             echo ${file}
             if [[ ${file} == *.py ]]; then
               python3 -m black --check --diff ${file}
-              python3 -m isort --check-only --diff ${file}
+              python3 -m isort --profile black --check-only --diff ${file}
             fi
           done
 
@@ -137,9 +137,9 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Code analysis)"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Run clang-tidy
@@ -162,7 +162,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -196,22 +196,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          cd tests/integration
-          for name in *; do
-            if [ ! -d $name ]; then continue; fi
-            pushd $name >/dev/null
-            echo "Running: $name"
-            if [ -x prepare.sh ]; then
-              ./prepare.sh
-            fi
-            if [ -x runner.py ]; then
-              ./runner.py
-            elif [ -x runner.sh ]; then
-              ./runner.sh
-            fi
-            echo
-            popd >/dev/null
-          done
+          tests/integration/run.sh
 
       - name: Run cppcheck and clang-format
         run: |
@@ -223,9 +208,9 @@ jobs:
           ./cppcheck_and_clang_format diff
 
       - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
 
   release_build:
@@ -238,11 +223,12 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
           fetch-depth: 0
+
 
       - name: Build release binaries
         run: |
@@ -254,16 +240,18 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$THREADS
 
       - name: Run GQL Behave tests
         run: |
-          cd tests/gql_behave
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
           ./continuous_integration
 
       - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "GQL Behave Status"
           path: |
@@ -279,23 +267,38 @@ jobs:
           cd build
           ctest -R memgraph__unit --output-on-failure -j$THREADS
 
+      - name: Ensure Kafka and Pulsar are up
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
+
       - name: Run e2e tests
         run: |
-          # TODO(gitbuda): Setup mgclient and pymgclient properly.
           cd tests
-          ./setup.sh
-          source ve3/bin/activate
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
           cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory .
+          ./run.sh
+
+      - name: Ensure Kafka and Pulsar are down
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
 
       - name: Run stress test (plain)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration
 
       - name: Run stress test (SSL)
         run: |
           cd tests/stress
+          source ve3/bin/activate
           ./continuous_integration --use-ssl
 
       - name: Run durability test
@@ -308,7 +311,6 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
           cd build
 
           # create mgconsole
@@ -320,16 +322,16 @@ jobs:
           cpack -G DEB --config ../CPackConfig.cmake
 
       - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
 
       - name: Save test data
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data"
+          name: "Test data(Release build)"
           path: |
             # multiple paths could be defined
             build/logs
@@ -345,7 +347,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -355,22 +357,25 @@ jobs:
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
           # Initialize dependencies.
           ./init
-
           # Build only memgraph release binarie.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
           make -j$THREADS memgraph
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
 
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test --binary ../../build/memgraph --run-args "test-all --node-configs resources/node-config.edn" --ignore-run-stdout-logs --ignore-run-stderr-logs
+          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: "Jepsen Report"
@@ -386,7 +391,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -429,15 +434,16 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
       - name: Run mgbench
         run: |
           cd tests/mgbench
-          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
 
       - name: Upload mgbench results
         run: |
@@ -446,7 +452,7 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include <stack>
 #include <unordered_set>
 
+#include "query/plan/preprocess.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -98,6 +99,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     auto it = has_aggregation_.end();
     auto elements_it = literal.elements_.begin();
     std::advance(it, -literal.elements_.size());
+    if (literal.GetTypeInfo() == MapProjectionLiteral::kType) {
+      // Erase the map variable. Grammar-wise, it’s a variable and thus never has aggregations.
+      std::advance(it, -1);
+      it = has_aggregation_.erase(it);
+    }
     while (it != has_aggregation_.end()) {
       if (*it) {
         has_aggr = true;
@@ -124,8 +130,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PostVisit(MapLiteral &map_literal) override {
     MG_ASSERT(map_literal.elements_.size() <= has_aggregation_.size(),
-              "Expected has_aggregation_ flags as much as there are map elements.");
+              "Expected as many has_aggregation_ flags as there are map elements.");
     PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
+    return true;
+  }
+
+  bool PostVisit(MapProjectionLiteral &map_projection_literal) override {
+    MG_ASSERT(map_projection_literal.elements_.size() <= has_aggregation_.size(),
+              "Expected as many has_aggregation_ flags as there are map elements.");
+    PostVisitCollectionLiteral(map_projection_literal, [](auto it) { return it->second; });
     return true;
   }
 
@@ -360,17 +373,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(ParameterLookup &) override {
+  bool Visit(ParameterLookup & /*unused*/) override {
     has_aggregation_.emplace_back(false);
     return true;
   }
 
-  bool PostVisit(RegexMatch &regex_match) override {
+  bool PostVisit(RegexMatch & /*unused*/) override {
     MG_ASSERT(has_aggregation_.size() >= 2U, "Expected 2 has_aggregation_ flags for RegexMatch arguments");
     bool has_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     has_aggregation_.back() |= has_aggr;
     return true;
+  }
+
+  bool PostVisit(PatternComprehension & /*unused*/) override {
+    throw utils::NotYetImplemented("Planner can not handle pattern comprehension.");
   }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.
@@ -439,9 +456,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::vector<Expression *> group_by_;
   std::unordered_set<Symbol> group_by_used_symbols_;
   // Flag stack indicating whether an expression contains an aggregation. A
-  // stack is needed so that we differentiate the case where a child
-  // sub-expression has an aggregation, while the other child doesn't. For
-  // example AST, (+ (sum x) y)
+  // stack is needed to address the case where one child sub-expression has
+  // an aggregation, while the other child does not.
+  // For example, the AST (+ (sum x) y) is as follows:
   //   * (sum x) -- Has an aggregation.
   //   * y -- Doesn't, we need to group by this.
   //   * (+ (sum x) y) -- The whole expression has an aggregation, so we don't
@@ -504,15 +521,42 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
+  std::vector<FilterInfo> and_joinable_filters{};
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
+      and_joinable_filters.emplace_back(*filters_it);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
     }
   }
+  // Idea here is to join filters in a way
+  // that pattern filter ( exists() ) is at the end
+  // so if any of the AND filters before
+  // evaluate to false we don't need to
+  // evaluate pattern ( exists() ) filter
+  std::partition(and_joinable_filters.begin(), and_joinable_filters.end(),
+                 [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
+  for (auto &and_joinable_filter : and_joinable_filters) {
+    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);
+  }
   return filter_expr;
+}
+
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
+                                                   SymbolTable &symbol_table, AstStorage &storage) {
+  const auto &query = single_query_parts[0];
+
+  if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
+    return {};
+  }
+
+  if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
+    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage);
+    return bound_symbols;
+  }
+
+  return {};
 }
 
 std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,
@@ -577,6 +621,9 @@ std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::
   return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_, left_op->OutputSymbols(symbol_table),
                                  right_op->OutputSymbols(symbol_table));
 }
+
+Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
+Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
 
 }  // namespace impl
 

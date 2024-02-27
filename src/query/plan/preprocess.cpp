@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,11 +14,13 @@
 #include <stack>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -55,33 +57,131 @@ void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
 // want to start expanding.
 std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
+  ExpansionGroupId unknown_expansion_group_id = ExpansionGroupId::FromInt(-1);
   auto ignore_node = [&](auto *) {};
-  auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
-    UsedSymbolsCollector collector(symbol_table);
-    if (edge->IsVariable()) {
-      if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
-      if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
-      if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
-      // Remove symbols which are bound by lambda arguments.
-      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
-      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
-      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
-        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
-      }
-    }
-    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node});
-  };
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
-      expansions.emplace_back(Expansion{node});
+      expansions.emplace_back(Expansion{.node1 = node, .expansion_group_id = unknown_expansion_group_id});
     } else {
+      auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
+        UsedSymbolsCollector collector(symbol_table);
+        if (edge->IsVariable()) {
+          if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
+          if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
+          if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
+          // Remove symbols which are bound by lambda arguments.
+          collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
+          collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
+          if (edge->filter_lambda_.accumulated_path) {
+            collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_path));
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_weight));
+            }
+          }
+          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
+              edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
+          }
+        }
+        expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
+                                          unknown_expansion_group_id});
+      };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
   }
   return expansions;
+}
+
+void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
+
+  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
+    ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
+    if (matching.node_symbol_to_expansion_group_id.contains(symbol)) {
+      expansion_group_id_to_assign = matching.node_symbol_to_expansion_group_id[symbol];
+    }
+
+    if (expansion.expansion_group_id.AsInt() == -1 ||
+        expansion_group_id_to_assign.AsInt() < expansion.expansion_group_id.AsInt()) {
+      expansion.expansion_group_id = expansion_group_id_to_assign;
+    }
+
+    matching.node_symbol_to_expansion_group_id[symbol] = expansion.expansion_group_id;
+  };
+
+  for (auto &expansion : expansions) {
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    assign_expansion_group_id(node1_sym, expansion);
+
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+
+      assign_expansion_group_id(edge_sym, expansion);
+      assign_expansion_group_id(node2_sym, expansion);
+    }
+
+    matching.number_of_expansion_groups = matching.number_of_expansion_groups < expansion.expansion_group_id.AsUint()
+                                              ? expansion.expansion_group_id.AsUint()
+                                              : matching.number_of_expansion_groups;
+    next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
+  }
+
+  // By the time we finished assigning expansions, no expansion should have its expansion group ID unassigned
+  for (const auto &expansion : matching.expansions) {
+    MG_ASSERT(expansion.expansion_group_id.AsInt() != -1, "Expansion group ID is not assigned to the pattern!");
+  }
+}
+
+void CollectEdgeSymbols(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  std::unordered_set<Symbol> edge_symbols;
+  for (auto &expansion : expansions) {
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      // Fill edge symbols for Cyphermorphism.
+      edge_symbols.insert(edge_sym);
+    }
+  }
+
+  if (!edge_symbols.empty()) {
+    matching.edge_symbols.emplace_back(edge_symbols);
+  }
+}
+
+void CollectExpansionSymbols(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  for (auto &expansion : expansions) {
+    // Map node1 symbol to expansion
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.expansion_symbols.insert(node1_sym);
+
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      matching.expansion_symbols.insert(edge_sym);
+
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.expansion_symbols.insert(node2_sym);
+    }
+  }
+}
+
+void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  for (auto &expansion : expansions) {
+    // Matching may already have some expansions, so offset our index.
+    const size_t expansion_ix = matching.expansions.size();
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+
+    if (expansion.edge) {
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+    }
+
+    matching.expansions.push_back(expansion);
+  }
 }
 
 auto SplitExpressionOnAnd(Expression *expression) {
@@ -107,7 +207,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(property), type_(type), value_(value) {
+    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -117,7 +217,11 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
-    : symbol_(symbol), property_(property), type_(Type::RANGE), lower_bound_(lower_bound), upper_bound_(upper_bound) {
+    : symbol_(symbol),
+      property_(std::move(property)),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
   UsedSymbolsCollector collector(symbol_table);
   if (lower_bound) {
     lower_bound->value()->Accept(collector);
@@ -128,8 +232,8 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property, Type type)
-    : symbol_(symbol), property_(property), type_(type) {
+PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
+    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
@@ -153,7 +257,7 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label, std::vector<Expression *> *removed_filters) {
+void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters) {
   for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
       ++filter_it;
@@ -198,11 +302,18 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           prop_pair.second->Accept(collector);
           collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_node));
           collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_edge));
+          if (atom->filter_lambda_.accumulated_path) {
+            collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.accumulated_path));
+
+            if (atom->filter_lambda_.accumulated_weight) {
+              collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.accumulated_weight));
+            }
+          }
           // First handle the inline property filter.
           auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
-          all_filters_.emplace_back(FilterInfo{FilterInfo::Type::Generic, prop_equal, collector.symbols_});
+          all_filters_.emplace_back(FilterInfo::Type::Generic, prop_equal, collector.symbols_);
         }
         {
           collector.symbols_.clear();
@@ -217,9 +328,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
           all_filters_.emplace_back(
-              FilterInfo{FilterInfo::Type::Generic,
-                         storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
-                         collector.symbols_});
+              FilterInfo::Type::Generic,
+              storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
+              collector.symbols_);
         }
       }
       return;
@@ -487,32 +598,21 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
-  auto expansions = NormalizePatterns(symbol_table, patterns);
-  std::unordered_set<Symbol> edge_symbols;
-  for (const auto &expansion : expansions) {
-    // Matching may already have some expansions, so offset our index.
-    const size_t expansion_ix = matching.expansions.size();
-    // Map node1 symbol to expansion
-    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
-    // Add node1 to all symbols.
-    matching.expansion_symbols.insert(node1_sym);
-    if (expansion.edge) {
-      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
-      // Fill edge symbols for Cyphermorphism.
-      edge_symbols.insert(edge_sym);
-      // Map node2 symbol to expansion
-      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
-      // Add edge and node2 to all symbols
-      matching.expansion_symbols.insert(edge_sym);
-      matching.expansion_symbols.insert(node2_sym);
-    }
-    matching.expansions.push_back(expansion);
-  }
-  if (!edge_symbols.empty()) {
-    matching.edge_symbols.emplace_back(edge_symbols);
-  }
+  std::vector<Expansion> expansions = NormalizePatterns(symbol_table, patterns);
+
+  // At this point, all of the expansions have the expansion group id of -1
+  // By the time the assigning is done, all the expansions should have their expansion group id adjusted
+  AssignExpansionGroupIds(expansions, matching, symbol_table);
+
+  // Add edge symbols for every expansion to ensure edge uniqueness
+  CollectEdgeSymbols(expansions, matching, symbol_table);
+
+  // Add all the symbols found in these expansions
+  CollectExpansionSymbols(expansions, matching, symbol_table);
+
+  // Matching is of reference type and needs to append the expansions
+  AddExpansionsToMatching(expansions, matching, symbol_table);
+
   for (auto *const pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
     if (pattern->identifier_->user_declared_) {
@@ -539,6 +639,12 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
   }
 }
 
+PatternFilterVisitor::PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
+    : symbol_table_(symbol_table), storage_(storage) {}
+PatternFilterVisitor::PatternFilterVisitor(const PatternFilterVisitor &) = default;
+PatternFilterVisitor::PatternFilterVisitor(PatternFilterVisitor &&) noexcept = default;
+PatternFilterVisitor::~PatternFilterVisitor() = default;
+
 void PatternFilterVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
   patterns.push_back(op.pattern_);
@@ -551,6 +657,8 @@ void PatternFilterVisitor::Visit(Exists &op) {
 
   matchings_.push_back(std::move(filter_matching));
 }
+
+std::vector<FilterMatching> PatternFilterVisitor::getMatchings() { return matchings_; }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
@@ -584,6 +692,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
+      } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
+        query_part->subqueries.emplace_back(
+            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_)));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
@@ -619,5 +730,19 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   }
   return QueryParts{query_parts, distinct};
 }
+
+FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols,
+                       std::optional<PropertyFilter> property_filter, std::optional<IdFilter> id_filter)
+    : type(type),
+      expression(expression),
+      used_symbols(std::move(used_symbols)),
+      property_filter(std::move(property_filter)),
+      id_filter(std::move(id_filter)),
+      matchings({}) {}
+FilterInfo::FilterInfo(const FilterInfo &) = default;
+FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
+FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
+FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
+FilterInfo::~FilterInfo() = default;
 
 }  // namespace memgraph::query::plan
