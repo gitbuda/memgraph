@@ -986,6 +986,26 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           RWType::NONE};
 }
 
+PreparedQuery PrepareCypherQueryPhysical(ParsedQuery parsed_query, InterpreterContext * /*unused*/,
+                                         RequestRouterInterface * /*unused*/) {
+  spdlog::warn("Prepare called for: {}", parsed_query.query_string);
+
+  // auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  // auto cached_plan = CypherQueryToPlan(
+  //     parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query, parsed_query.parameters,
+  //     parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, request_router);
+  // auto &logical_plan = cached_plan->plan();
+  // TODO(gitbuda): Convert logical plna to physical plan.
+
+  return {{},                                    // header
+          {},                                    // privileges
+          [](AnyStream *, std::optional<int>) {  // this handler is called from interpreter::pull
+            spdlog::warn("Physical Pull Handler");
+            return QueryHandlerResult::NOTHING;
+          },
+          RWType::NONE};  // query type
+}
+
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -1633,6 +1653,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     PreparedQuery prepared_query;
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
+      // prepared_query = PrepareCypherQueryPhysical(std::move(parsed_query), interpreter_context_,
+      // request_router_.get());
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           &*execution_db_accessor_, &query_execution->execution_memory,
                                           &query_execution->notifications, request_router_.get());
