@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <iostream>
+#include <memory>
 
 #include <gar/api.h>
 #include <gflags/gflags.h>
@@ -17,23 +18,25 @@
 #define GRAPH_NAME "manual_graph"
 #define IS_DIRECTED false
 #define SAVE_PATH "/tmp/" + graph_name + "/"
-#define ADJLIST_TYPE GAR_NAMESPACE::AdjListType::ordered_by_source
-#define PAYLOAD_TYPE GAR_NAMESPACE::FileType::CSV
+#define ADJLIST_TYPE GAR_NAMESPACE_INTERNAL::AdjListType::ordered_by_source
+#define PAYLOAD_TYPE GAR_NAMESPACE_INTERNAL::FileType::CSV
 #define VERTEX_CHUNK_SIZE 1024
 #define EDGE_CHUNK_SIZE 1024 * 1024
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  // TODO(gitbuda): Add logging.
 
   std::string graph_name = GRAPH_NAME;
   std::string save_path = SAVE_PATH;
-  auto version = GAR_NAMESPACE::InfoVersion::Parse("gar/v1").value();
-  std::string vertex_label = "node", vertex_prefix = "vertex/node/";
-  auto vertex_info = GAR_NAMESPACE::CreateVertexInfo(vertex_label, VERTEX_CHUNK_SIZE, {}, vertex_prefix, version);
-  ASSERT(!vertex_info->Dump().has_error());
-  ASSERT(vertex_info->Save(save_path + "node.vertex.yaml").ok());
-
-  std::cout << "GraphAr test" << std::endl;
+  // TODO(gitbuda): Parsing of string version doesn't work for some reason, try with toolchain-v5.
+  auto version = std::make_shared<GAR_NAMESPACE_INTERNAL::InfoVersion>(1);
+  std::string vertex_label = "node";
+  std::string vertex_prefix = "vertex/node/";
+  auto vertex_info =
+      GAR_NAMESPACE_INTERNAL::CreateVertexInfo(vertex_label, VERTEX_CHUNK_SIZE, {}, vertex_prefix, version);
+  vertex_info->Dump().error();
+  vertex_info->Save(save_path + "node.vertex.yaml").ok();
 
   return 0;
 }
