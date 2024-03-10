@@ -9,28 +9,25 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/custom_cursors/once.hpp"
+#include "query/custom_cursors/produce.hpp"
 #include "query/context.hpp"
 #include "query/custom_cursors/utils.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/plan/scoped_profile.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::custom_cursors {
 
-bool OnceCursor::Pull(Frame & /*unused*/, ExecutionContext &context) {
+ProduceCursor::ProduceCursor(plan::UniqueCursorPtr input_cursor) : input_cursor_(std::move(input_cursor)) {}
+
+bool ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  memgraph::query::plan::ScopedProfile profile{ComputeProfilingKey(this), "Once", &context};
-  SPDLOG_WARN("Once");
-  if (!did_pull_) {
-    did_pull_ = true;
-    return true;
-  }
-  return false;
+  memgraph::query::plan::ScopedProfile profile{ComputeProfilingKey(this), "Produce", &context};
+  SPDLOG_WARN("Produce");
+  return input_cursor_->Pull(frame, context);
 }
 
-void OnceCursor::Shutdown() {}
+void ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void OnceCursor::Reset() { did_pull_ = false; }
-
+void ProduceCursor::Reset() { input_cursor_->Reset(); }
 }  // namespace memgraph::query::custom_cursors

@@ -13,20 +13,17 @@
 
 #include "query/plan/cursor.hpp"
 
-namespace memgraph::query {
-
-struct ExecutionContext;
-class Frame;
-
-namespace custom_cursors {
+namespace memgraph::query::custom_cursors {
 
 class OnceCursor : public memgraph::query::plan::Cursor {
  public:
   OnceCursor() = default;
-  bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+  bool Pull(Frame & /*unused*/, ExecutionContext &context) override;
   void Shutdown() override;
   void Reset() override;
+
+ private:
+  bool did_pull_{false};
 };
 
-}  // namespace custom_cursors
-}  // namespace memgraph::query
+}  // namespace memgraph::query::custom_cursors

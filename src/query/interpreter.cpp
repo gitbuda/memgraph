@@ -79,6 +79,7 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/custom_storage/storage.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -1716,6 +1717,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       use_monotonic_memory_(use_monotonic_memory) {
+  // TODO(gitbuda): Here shoule be ref to an object which can safely access the custom_storage.
+  ctx_.custom_storage = std::make_unique<memgraph::storage::custom_storage::Storage>();
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();

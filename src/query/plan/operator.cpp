@@ -30,6 +30,8 @@
 #include "flags/experimental.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
+#include "query/custom_cursors/produce.hpp"
+#include "query/custom_cursors/scanall.hpp"
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
@@ -585,6 +587,11 @@ ACCEPT_WITH_INPUT(ScanAll)
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
+
+  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::ALTERNATIVE_STORAGE)) {
+    return MakeUniqueCursorPtr<memgraph::query::custom_cursors::ScanAllCursor>(mem, output_symbol_,
+                                                                               input_->MakeCursor(mem));
+  }
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -2732,6 +2739,10 @@ ACCEPT_WITH_INPUT(Produce)
 
 UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ProduceOperator);
+
+  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::ALTERNATIVE_STORAGE)) {
+    return MakeUniqueCursorPtr<memgraph::query::custom_cursors::ProduceCursor>(mem, input_->MakeCursor(mem));
+  }
 
   return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem);
 }

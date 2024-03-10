@@ -23,6 +23,7 @@
 #include "utils/async_timer.hpp"
 
 #include "query/frame_change.hpp"
+#include "storage/custom_storage/storage.hpp"
 
 namespace memgraph::query {
 
@@ -73,6 +74,7 @@ inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string
 }
 
 struct ExecutionContext {
+  std::unique_ptr<memgraph::storage::custom_storage::Storage> custom_storage{nullptr};
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;

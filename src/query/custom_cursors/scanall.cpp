@@ -11,17 +11,25 @@
 
 #include "query/custom_cursors/scanall.hpp"
 #include "query/context.hpp"
+#include "query/custom_cursors/utils.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/plan/scoped_profile.hpp"
 
 namespace memgraph::query::custom_cursors {
 
-bool ScanAllCursor::Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) {
+ScanAllCursor::ScanAllCursor(Symbol output_symbol, plan::UniqueCursorPtr input_cursor)
+    : output_symbol_(std::move(output_symbol)), input_cursor_(std::move(input_cursor)) {}
+
+bool ScanAllCursor::Pull(Frame &frame, ExecutionContext &context) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  memgraph::query::plan::ScopedProfile profile{ComputeProfilingKey(this), "ScanAll", &context};
   SPDLOG_WARN("ScanAll");
-  return false;
+  context.custom_storage->Call();
+  return input_cursor_->Pull(frame, context);
 }
 
-void ScanAllCursor::Shutdown() {}
+void ScanAllCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void ScanAllCursor::Reset() {}
+void ScanAllCursor::Reset() { input_cursor_->Reset(); }
 
 }  // namespace memgraph::query::custom_cursors

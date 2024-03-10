@@ -11,21 +11,12 @@
 
 #pragma once
 
-#include "query/frontend/semantic/symbol.hpp"
-#include "query/plan/cursor.hpp"
+#include "storage/custom_storage/storage.hpp"
+#include "spdlog/spdlog.h"
+#include "utils/logging.hpp"
 
-namespace memgraph::query::custom_cursors {
+namespace memgraph::storage::custom_storage {
 
-class ScanAllCursor : public memgraph::query::plan::Cursor {
- public:
-  explicit ScanAllCursor(Symbol output_symbol, plan::UniqueCursorPtr input_cursor);
-  bool Pull(Frame &frame, ExecutionContext &context) override;
-  void Shutdown() override;
-  void Reset() override;
+void Storage::Call() { SPDLOG_WARN("Storage Call"); }
 
- private:
-  const Symbol output_symbol_;
-  const plan::UniqueCursorPtr input_cursor_;
-};
-
-}  // namespace memgraph::query::custom_cursors
+}  // namespace memgraph::storage::custom_storage
