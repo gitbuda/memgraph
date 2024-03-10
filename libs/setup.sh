@@ -127,6 +127,7 @@ declare -A primary_urls=(
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
+  ["graphar"]="http://$local_cache_host/git/GraphAr.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -157,6 +158,7 @@ declare -A secondary_urls=(
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
+  ["graphar"]="https://github.com/gitbuda/GraphAr.git"
 )
 
 # antlr
@@ -288,3 +290,7 @@ pushd nuraft
 git apply ../nuraft2.1.0.patch
 ./prepare.sh
 popd
+
+# GraphAr 2024-03-07
+graphar_tag="da86711944653ae4ed738a52e7fc1180d4cc40d5"
+repo_clone_try_double "${primary_urls[graphar]}" "${secondary_urls[graphar]}" "graphar" "$graphar_tag" true

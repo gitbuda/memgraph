@@ -301,3 +301,9 @@ import_external_library(nuraft STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
+
+# Setup GraphAr
+import_external_library(graphar SHARED
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/lib/libgar.so
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/include
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp)
