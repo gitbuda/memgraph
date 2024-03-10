@@ -74,7 +74,7 @@ inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string
 }
 
 struct ExecutionContext {
-  std::unique_ptr<memgraph::storage::custom_storage::Storage> custom_storage{nullptr};
+  memgraph::storage::custom_storage::Storage *custom_storage{nullptr};
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;

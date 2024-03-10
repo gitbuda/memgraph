@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <memory>
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
@@ -415,6 +416,7 @@ int main(int argc, char **argv) {
                                            auth_, FLAGS_data_recovery_on_startup
 #endif
   );
+  auto custom_storage = std::make_unique<memgraph::storage::custom_storage::Storage>();
 
   // Note: Now that all system's subsystems are initialised (dbms & auth)
   //       We can now initialise the recovery of replication (which will include those subsystems)
@@ -443,6 +445,8 @@ int main(int argc, char **argv) {
                                                            auth_handler.get(), auth_checker.get(),
                                                            &replication_handler);
   MG_ASSERT(db_acc, "Failed to access the main database");
+  // TODO(gitbuda): Init moved here because tests are constructing the interpreter context.
+  interpreter_context_.custom_storage = custom_storage.get();
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);

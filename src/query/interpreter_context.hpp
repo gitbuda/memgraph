@@ -23,6 +23,7 @@
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
+#include "storage/custom_storage/storage.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "system/state.hpp"
@@ -63,6 +64,8 @@ struct InterpreterContext {
                      ReplicationQueryHandler *replication_handler = nullptr);
 
   memgraph::dbms::DbmsHandler *dbms_handler;
+  // TODO(gitbuda): The storage should be under multi-tenancy -> it figure out.
+  memgraph::storage::custom_storage::Storage *custom_storage;
 
   // Internal
   const InterpreterConfig config;
