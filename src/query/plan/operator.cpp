@@ -269,6 +269,10 @@ ACCEPT_WITH_INPUT(CreateNode)
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
 
+  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::ALTERNATIVE_STORAGE)) {
+    return MakeUniqueCursorPtr<memgraph::query::custom_cursors::CreateNodeCursor>(mem, *this, input_->MakeCursor(mem));
+  }
+
   return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem);
 }
 
@@ -2740,9 +2744,10 @@ ACCEPT_WITH_INPUT(Produce)
 UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ProduceOperator);
 
-  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::ALTERNATIVE_STORAGE)) {
-    return MakeUniqueCursorPtr<memgraph::query::custom_cursors::ProduceCursor>(mem, input_->MakeCursor(mem));
-  }
+  // NOTE(gitbuda): Since Produce is a stateless cursor -> it's possible to reuse it!
+  // if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::ALTERNATIVE_STORAGE)) {
+  //  return MakeUniqueCursorPtr<memgraph::query::custom_cursors::ProduceCursor>(mem, input_->MakeCursor(mem));
+  // }
 
   return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem);
 }
@@ -3567,6 +3572,8 @@ class EmptyResultCursor : public Cursor {
 UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::EmptyResultOperator);
 
+  // NOTE(gitbuda): Needed in plain CREATE query -> reused.
+
   return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
 }
 
@@ -3633,6 +3640,8 @@ class AccumulateCursor : public Cursor {
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AccumulateOperator);
+
+  // NOTE(gitbuda): Also needed in CREATE RETURN -> reused.
 
   return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
 }

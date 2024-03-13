@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,8 @@ std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode
       return "IN_MEMORY_TRANSACTIONAL";
     case memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL:
       return "ON_DISK_TRANSACTIONAL";
+    case memgraph::storage::StorageMode::ALTERNATIVE_STORAGE:
+      return "ALTERNATIVE_STORAGE";
   }
 }
 

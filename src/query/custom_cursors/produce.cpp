@@ -30,4 +30,5 @@ bool ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
 void ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void ProduceCursor::Reset() { input_cursor_->Reset(); }
+
 }  // namespace memgraph::query::custom_cursors

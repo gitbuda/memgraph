@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "query/custom_cursors/create_node.hpp"
 #include "query/custom_cursors/once.hpp"
 #include "query/custom_cursors/produce.hpp"
 #include "query/custom_cursors/scanall.hpp"

@@ -21,7 +21,7 @@ namespace memgraph::query::custom_cursors {
 bool OnceCursor::Pull(Frame & /*unused*/, ExecutionContext &context) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   memgraph::query::plan::ScopedProfile profile{ComputeProfilingKey(this), "Once", &context};
-  SPDLOG_WARN("Once; storage ptr {}", reinterpret_cast<void *>(context.custom_storage));
+  SPDLOG_WARN("OnceCursor::Pull");
   if (!did_pull_) {
     did_pull_ = true;
     return true;

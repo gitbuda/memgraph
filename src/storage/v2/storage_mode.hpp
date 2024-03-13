@@ -16,9 +16,15 @@
 #include <string_view>
 namespace memgraph::storage {
 
-enum class StorageMode : std::uint8_t { IN_MEMORY_ANALYTICAL, IN_MEMORY_TRANSACTIONAL, ON_DISK_TRANSACTIONAL };
+enum class StorageMode : std::uint8_t {
+  IN_MEMORY_ANALYTICAL,
+  IN_MEMORY_TRANSACTIONAL,
+  ON_DISK_TRANSACTIONAL,
+  ALTERNATIVE_STORAGE
+};
 
 inline constexpr std::array storage_mode_mappings{
+    std::pair{std::string_view{"ALTERNATIVE_STORAGE"}, memgraph::storage::StorageMode::ALTERNATIVE_STORAGE},
     std::pair{std::string_view{"IN_MEMORY_TRANSACTIONAL"}, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL},
     std::pair{std::string_view{"IN_MEMORY_ANALYTICAL"}, memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL},
     std::pair{std::string_view{"ON_DISK_TRANSACTIONAL"}, memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL}};
