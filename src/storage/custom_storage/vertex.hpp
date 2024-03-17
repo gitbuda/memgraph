@@ -9,18 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/custom_storage/storage.hpp"
-#include "spdlog/spdlog.h"
-#include "utils/logging.hpp"
+#pragma once
+
+#include <map>
+#include <vector>
+
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 
 namespace memgraph::storage::custom_storage {
 
-void Storage::Call() { SPDLOG_WARN("Storage Call"); }
-
-Vertex *Storage::AddVertex(Vertex &&vertex) {
-  return vertices_.emplace_back(std::make_unique<Vertex>(std::move(vertex))).get();
-}
-
-uint64_t Storage::VerticesNo() const { return vertices_.size(); }
+struct Vertex {
+  std::vector<storage::LabelId> labels;
+  std::map<storage::PropertyId, storage::PropertyValue> properties;
+};
 
 }  // namespace memgraph::storage::custom_storage

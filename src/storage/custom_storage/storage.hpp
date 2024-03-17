@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <list>
+
+#include "storage/custom_storage/vertex.hpp"
+
 namespace memgraph::storage::custom_storage {
 
 // Desing ideas:
@@ -37,6 +41,13 @@ namespace memgraph::storage::custom_storage {
 class Storage {
  public:
   void Call();
+  // TODO(gitbuda): Make AddVertex thread-safe / concurrent.
+  Vertex *AddVertex(Vertex &&vertex);
+  uint64_t VerticesNo() const;
+
+ private:
+  // TODO(gitbuda): vector is a horrible choice here -> on resize -> :boom: -> list is here just TMP
+  std::list<std::unique_ptr<Vertex>> vertices_;
 };
 
 }  // namespace memgraph::storage::custom_storage

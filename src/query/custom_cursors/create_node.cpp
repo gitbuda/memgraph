@@ -16,6 +16,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/scoped_profile.hpp"
+#include "storage/custom_storage/vertex.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::custom_cursors {
@@ -26,8 +27,10 @@ struct QueryVertex {};
 // frame.
 QueryVertex CreateVertex(const plan::NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
-  for (auto label : node_info.labels) {
-    // TODO(gitbuda): Collect labels.
+  if (node_info.labels.size() != 1) {
+    throw QueryRuntimeException(
+        "0 or multiple labels not yet supported under CreateNode. You have to provide exactly 1 lable for any given "
+        "vertex/node.");
   }
   // NOTE: Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
@@ -47,10 +50,13 @@ QueryVertex CreateVertex(const plan::NodeCreationInfo &node_info, Frame *frame, 
       properties.emplace(dba.NameToProperty(key), value);
     }
   }
-  // TODO(gitbuda): Set labels and properties.
   // TODO(gitbuda): Put vertex on the frame. (*frame)[node_info.symbol] = new_node;
-  // TODO(gitbuda): Return vertex to the cursor, needed to update the trigger.
-  context.custom_storage->Call();
+  // (*frame)[node_info.symbol] = new_node;
+  // return (*frame)[node_info.symbol].ValueVertex();
+
+  auto new_node = memgraph::storage::custom_storage::Vertex{.labels = node_info.labels, .properties = properties};
+  auto *vertex_ptr = context.custom_storage->AddVertex(std::move(new_node));
+  SPDLOG_WARN("{}", context.custom_storage->VerticesNo());
   return QueryVertex{};
 }
 
@@ -62,7 +68,6 @@ bool CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   memgraph::query::plan::ScopedProfile profile{ComputeProfilingKey(this), "CreateNode", &context};
   SPDLOG_WARN("CreateNodeCursor::Pull");
   if (input_cursor_->Pull(frame, context)) {
-    // TODO(gitbuda): Take data from the operator and create the node.
     CreateVertex(logical_operator_.node_info_, &frame, context);
     return true;
   }
