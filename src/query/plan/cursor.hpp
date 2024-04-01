@@ -29,13 +29,6 @@ namespace plan {
 /// the iteration mechanism.
 class Cursor {
  public:
-  Cursor() = default;
-  Cursor(const Cursor &) = delete;
-  Cursor(Cursor &&) = delete;
-  Cursor &operator=(const Cursor &) = delete;
-  Cursor &operator=(Cursor &&) = delete;
-  virtual ~Cursor() = default;
-
   /// Run an iteration of a @c LogicalOperator.
   ///
   /// Since operators may be chained, the iteration may pull results from
@@ -54,6 +47,8 @@ class Cursor {
 
   /// Perform cleanup which may throw an exception
   virtual void Shutdown() = 0;
+
+  virtual ~Cursor() = default;
 };
 
 /// unique_ptr to Cursor managed with a custom deleter.
@@ -63,18 +58,14 @@ using UniqueCursorPtr = std::unique_ptr<Cursor, std::function<void(Cursor *)>>;
 template <class TCursor, class... TArgs>
 std::unique_ptr<Cursor, std::function<void(Cursor *)>> MakeUniqueCursorPtr(utils::Allocator<TCursor> allocator,
                                                                            TArgs &&...args) {
-  auto *ptr = allocator.allocate(1);
-  try {
-    auto *cursor = new (ptr) TCursor(std::forward<TArgs>(args)...);
-    return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, [allocator](Cursor *base_ptr) mutable {
-      auto *p = static_cast<TCursor *>(base_ptr);
-      p->~TCursor();
-      allocator.deallocate(p, 1);
-    });
-  } catch (...) {
-    allocator.deallocate(ptr, 1);
-    throw;
-  }
+  auto *cursor = allocator.template new_object<TCursor>(std::forward<TArgs>(args)...);
+  auto dtr = [allocator](Cursor *base_ptr) mutable {
+    auto *p = static_cast<TCursor *>(base_ptr);
+    allocator.delete_object(p);
+  };
+  // TODO: not std::function
+  return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, std::move(dtr));
 }
+
 }  // namespace plan
 }  // namespace memgraph::query

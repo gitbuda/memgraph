@@ -358,11 +358,17 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);
-    if (!node->labels_.empty()) {
-      // Create a LabelsTest and store it.
-      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, node->labels_);
+    std::vector<LabelIx> labels;
+    for (auto label : node->labels_) {
+      if (const auto *label_node = std::get_if<Expression *>(&label)) {
+        throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
+      }
+      labels.push_back(std::get<LabelIx>(label));
+    }
+    if (!labels.empty()) {
+      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
       auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-      label_filter.labels = node->labels_;
+      label_filter.labels = labels;
       all_filters_.emplace_back(label_filter);
     }
     add_properties(node);
@@ -678,9 +684,8 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
 
 static void ParseReturn(query::Return &ret, AstStorage &storage, SymbolTable &symbol_table,
                         std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
-  PatternVisitor visitor(symbol_table, storage);
-
   for (auto *expr : ret.body_.named_expressions) {
+    PatternVisitor visitor(symbol_table, storage);
     expr->Accept(visitor);
     auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
     for (auto &matching : pattern_comprehension_matchings) {
@@ -696,6 +701,7 @@ void PatternVisitor::Visit(PatternComprehension &op) {
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
+  matching.result_symbol = symbol_table_.at(op);
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 }

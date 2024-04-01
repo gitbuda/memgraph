@@ -54,7 +54,9 @@ QueryVertex CreateVertex(const plan::NodeCreationInfo &node_info, Frame *frame, 
   // (*frame)[node_info.symbol] = new_node;
   // return (*frame)[node_info.symbol].ValueVertex();
 
-  auto new_node = memgraph::storage::custom_storage::Vertex{.labels = node_info.labels, .properties = properties};
+  // TODO(gitbuda): node_info.labels change type -> add the transformation.
+  // auto new_node = memgraph::storage::custom_storage::Vertex{.labels = node_info.labels, .properties = properties};
+  auto new_node = memgraph::storage::custom_storage::Vertex{.labels = {}, .properties = properties};
   auto *vertex_ptr = context.custom_storage->AddVertex(std::move(new_node));
   SPDLOG_WARN("{}", context.custom_storage->VerticesNo());
   return QueryVertex{};

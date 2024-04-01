@@ -83,6 +83,11 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeType &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeId &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -340,10 +345,22 @@ json ToJson(NamedExpression *nexpr) {
   return json;
 }
 
-json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties, const DbAccessor &dba) {
+json ToJson(const PropertiesMapList &properties, const DbAccessor &dba) {
   json json;
   for (const auto &prop_pair : properties) {
     json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second));
+  }
+  return json;
+}
+
+json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) {
+  json json;
+  for (const auto &label : labels) {
+    if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      json.emplace_back(ToJson(*label_node));
+    } else {
+      json.emplace_back(ToJson(std::get<storage::LabelId>(label), dba));
+    }
   }
   return json;
 }
@@ -480,6 +497,16 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeType &op) {
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
+  json self;
+  self["name"] = "ScanAllByEdgeId";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
   output_ = std::move(self);
   return false;
 }
@@ -654,7 +681,6 @@ bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
   self["name"] = "SetLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
   self["labels"] = ToJson(op.labels_, *dba_);
-
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
@@ -769,7 +795,7 @@ bool PlanToJsonVisitor::PreVisit(OrderBy &op) {
 
   for (auto i = 0; i < op.order_by_.size(); ++i) {
     json json;
-    json["ordering"] = ToString(op.compare_.ordering_[i]);
+    json["ordering"] = ToString(op.compare_.orderings()[i].ordering());
     json["expression"] = ToJson(op.order_by_[i]);
     self["order_by"].push_back(json);
   }
