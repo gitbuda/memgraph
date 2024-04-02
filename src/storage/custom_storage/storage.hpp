@@ -13,6 +13,7 @@
 
 #include <list>
 
+#include "storage/custom_storage/gar_database.hpp"
 #include "storage/custom_storage/vertex.hpp"
 
 namespace memgraph::storage::custom_storage {
@@ -48,6 +49,7 @@ class Storage {
  private:
   // TODO(gitbuda): vector is a horrible choice here -> on resize -> :boom: -> list is here just TMP
   std::list<std::unique_ptr<Vertex>> vertices_;
+  GARDatabaseConfig config_;
 };
 
 }  // namespace memgraph::storage::custom_storage
