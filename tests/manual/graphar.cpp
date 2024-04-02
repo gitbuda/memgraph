@@ -21,94 +21,142 @@
 
 #include "utils/logging.hpp"
 
-// TODO(gitbuda): Reiterate GARDatabase/GraphConfig -> make it complete -> just make a struct with sub-structs.
-
 struct GARDatabaseConfig {
-  std::filesystem::path root{std::filesystem::temp_directory_path()};  // single database root directory
-  std::shared_ptr<graphar::InfoVersion> version;
-  std::string vertex_metadata_suffix{".vertex.yaml"};
-  std::string edge_metadata_suffix{".edge.yaml"};
-  std::filesystem::path vertex_folder_prefix{"vertex"};
-  std::filesystem::path edge_folder_prefix{"edge"};
-  uint64_t vertex_chunk_size{1024};
-  uint64_t edge_chunk_size{1024};
-  uint64_t edge_src_chunk_size{1024};
-  uint64_t edge_dst_chunk_size{1024};
-  bool is_directed{false};
-  graphar::AdjListType ordering;
+  struct PerDatabase {
+    std::filesystem::path root{std::filesystem::temp_directory_path()};  // single database root directory
+    std::shared_ptr<graphar::InfoVersion> version;
+    std::string vertex_metadata_suffix{".vertex.yaml"};
+    std::string edge_metadata_suffix{".edge.yaml"};
+    std::filesystem::path vertex_folder_prefix{"vertex"};
+    std::filesystem::path edge_folder_prefix{"edge"};
+    uint64_t vertex_chunk_size{1024};
+    uint64_t edge_chunk_size{1024};
+    uint64_t edge_src_chunk_size{1024};
+    uint64_t edge_dst_chunk_size{1024};
+    bool is_directed{false};
+    graphar::AdjListType ordering;
+  } * base;
+
+  struct GARVertexType {
+    PerDatabase *base{nullptr};
+    void CheckBase() const { MG_ASSERT(base != nullptr); }
+    std::string label;
+    graphar::PropertyGroupVector properties;
+    std::filesystem::path Prefix() const {
+      CheckBase();
+      return base->vertex_folder_prefix / std::filesystem::path(label);
+    }
+    std::string SavePath() const {
+      CheckBase();
+      return base->root / std::filesystem::path(label + base->vertex_metadata_suffix);
+    }
+  };
+  std::vector<GARVertexType> vertex_types;
+
+  struct GAREdgeType {
+    PerDatabase *base{nullptr};
+    void CheckBase() const { MG_ASSERT(base != nullptr); }
+    std::string src_label;
+    std::string edge_type;
+    std::string dst_label;
+    graphar::PropertyGroupVector properties;
+    std::vector<std::shared_ptr<graphar::AdjacentList>> adjacent_lists;
+    std::string src_type_dst{src_label + "__" + edge_type + "__" + dst_label};
+    std::filesystem::path Prefix() const {
+      CheckBase();
+      return base->edge_folder_prefix / std::filesystem::path(src_type_dst);
+    }
+    std::string SavePath() const {
+      CheckBase();
+      return base->root / std::filesystem::path(src_type_dst + base->edge_metadata_suffix);
+    }
+  };
+  std::vector<GAREdgeType> edge_types;
 };
 
-struct GARVertexType {
-  GARDatabaseConfig base;
-  std::string label;
-  graphar::PropertyGroupVector properties;
-  std::filesystem::path Prefix() const { return base.vertex_folder_prefix / std::filesystem::path(label); }
-  std::string SavePath() const { return base.root / std::filesystem::path(label + base.vertex_metadata_suffix); }
-};
-
-struct GAREdgeType {
-  GARDatabaseConfig base;
-  std::string src_label;
-  std::string edge_type;
-  std::string dst_label;
-  graphar::PropertyGroupVector properties;
-  std::vector<std::shared_ptr<graphar::AdjacentList>> adjacent_lists;
-  std::string src_type_dst{src_label + "__" + edge_type + "__" + dst_label};
-  std::filesystem::path Prefix() const { return base.edge_folder_prefix / std::filesystem::path(src_type_dst); }
-  std::string SavePath() const { return base.root / std::filesystem::path(src_type_dst + base.edge_metadata_suffix); }
-};
-
-auto InitVertexType(const GARVertexType &type) {
-  auto vertex_info = graphar::CreateVertexInfo(type.label, type.base.vertex_chunk_size, type.properties,
-                                                              type.Prefix(), type.base.version);
+auto InitVertexType(const GARDatabaseConfig::GARVertexType &vertex_type) {
+  auto vertex_info = graphar::CreateVertexInfo(vertex_type.label, vertex_type.base->vertex_chunk_size,
+                                               vertex_type.properties, vertex_type.Prefix(), vertex_type.base->version);
   MG_ASSERT(!vertex_info->Dump().has_error());
-  MG_ASSERT(vertex_info->Save(type.SavePath()).ok());
+  MG_ASSERT(vertex_info->Save(vertex_type.SavePath()).ok());
   return vertex_info;
 }
 
-auto InitEdgeType(const GAREdgeType &edge_type) {
+auto InitVertexTypes(const GARDatabaseConfig &config) {
+  std::vector<std::shared_ptr<graphar::VertexInfo>> vertex_infos;
+  for (const auto &vertex_type : config.vertex_types) {
+    auto vertex_info = InitVertexType(vertex_type);
+    vertex_infos.push_back(vertex_info);
+  }
+  return vertex_infos;
+}
+
+auto InitEdgeType(const GARDatabaseConfig::GAREdgeType &edge_type) {
   auto edge_info = graphar::CreateEdgeInfo(
-      edge_type.src_label, edge_type.edge_type, edge_type.dst_label, edge_type.base.edge_chunk_size,
-      edge_type.base.edge_src_chunk_size, edge_type.base.edge_dst_chunk_size, edge_type.base.is_directed,
-      edge_type.adjacent_lists, edge_type.properties, edge_type.Prefix(), edge_type.base.version);
+      edge_type.src_label, edge_type.edge_type, edge_type.dst_label, edge_type.base->edge_chunk_size,
+      edge_type.base->edge_src_chunk_size, edge_type.base->edge_dst_chunk_size, edge_type.base->is_directed,
+      edge_type.adjacent_lists, edge_type.properties, edge_type.Prefix(), edge_type.base->version);
   MG_ASSERT(!edge_info->Dump().has_error());
   MG_ASSERT(edge_info->Save(edge_type.SavePath()).ok());
   return edge_info;
+}
+
+auto InitEdgeTypes(const GARDatabaseConfig &config) {
+  std::vector<std::shared_ptr<graphar::EdgeInfo>> edge_infos;
+  for (const auto &edge_type : config.edge_types) {
+    auto edge_info = InitEdgeType(edge_type);
+    edge_infos.push_back(edge_info);
+  }
+  return edge_infos;
 }
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::trace);
 
-  // schema
-  const auto database = GARDatabaseConfig{
-      .root = "/tmp/gar/",
-      .version = std::make_shared<graphar::InfoVersion>(1),
-  };
+  // "runtime" schema spec START
+  // node metadata
   auto property_vector_1 = {graphar::Property("id", graphar::int64(), true)};
   auto property_vector_2 = {graphar::Property("domain", graphar::string(), false),
                             graphar::Property("extra", graphar::string(), false)};
   auto group1 = graphar::CreatePropertyGroup(property_vector_1, graphar::FileType::CSV);
   auto group2 = graphar::CreatePropertyGroup(property_vector_2, graphar::FileType::CSV);
-  const auto vertex_type = GARVertexType{.base = database, .label = "node", .properties = {group1, group2}};
-  auto vertex_info = InitVertexType(vertex_type);
-  auto adjacent_lists = {
-      graphar::CreateAdjacentList(graphar::AdjListType::ordered_by_source,
-                                                 graphar::FileType::CSV),
-      graphar::CreateAdjacentList(graphar::AdjListType::ordered_by_dest,
-                                                 graphar::FileType::CSV)};
+  // edge metadata
+  auto adjacent_lists = {graphar::CreateAdjacentList(graphar::AdjListType::ordered_by_source, graphar::FileType::CSV),
+                         graphar::CreateAdjacentList(graphar::AdjListType::ordered_by_dest, graphar::FileType::CSV)};
   auto property_vector_3 = {graphar::Property("created", graphar::string(), false)};
   auto group3 = graphar::CreatePropertyGroup(property_vector_3, graphar::FileType::CSV);
-  const auto edge_type = GAREdgeType{.base = database,
-                                     .src_label = "node",
-                                     .edge_type = "LINK",
-                                     .dst_label = "node",
-                                     .properties = {group3},
-                                     .adjacent_lists = adjacent_lists};
-  auto edge_info = InitEdgeType(edge_type);
+
+  GARDatabaseConfig::PerDatabase per_database = {
+      .root = "/tmp/gar/",
+      .version = std::make_shared<graphar::InfoVersion>(1),
+  };
+  const auto db_config = GARDatabaseConfig{
+      .base = &per_database,
+      .vertex_types = {{
+          .base = &per_database,
+          .label = "node",
+          .properties = {group1, group2},
+      }},
+      .edge_types = {{
+          .base = &per_database,
+          .src_label = "node",
+          .edge_type = "LINK",
+          .dst_label = "node",
+          .properties = {group3},
+          .adjacent_lists = adjacent_lists,
+      }},
+  };
+  // "runtime" schema spec START
+
+  // init GAR
+  auto &vertex_type = db_config.vertex_types[0];
+  auto vertex_info = InitVertexTypes(db_config)[0];
+  auto &edge_type = db_config.edge_types[0];
+  auto edge_info = InitEdgeTypes(db_config)[0];
 
   // vertex data partition 1
-  graphar::builder::VerticesBuilder builder(vertex_info, vertex_type.base.root, 0);
+  graphar::builder::VerticesBuilder builder(vertex_info, vertex_type.base->root, 0);
   builder.SetValidateLevel(graphar::ValidateLevel::strong_validate);
   int vertex_count = 2;
   std::vector<std::string> property_names = {"id", "domain"};
@@ -126,10 +174,11 @@ int main(int argc, char **argv) {
   spdlog::info("dump vertices collection successfully!");
   builder.Clear();
   MG_ASSERT(builder.GetNum() == 0);
+  // "runtime" schema spec START
 
   // vertex data partition 2 -> IMPORTANT: controlling start_vertex_index means partitioning & parallelization.
-  graphar::builder::VerticesBuilder builder2(vertex_info, vertex_type.base.root,
-                                                            vertex_type.base.vertex_chunk_size * 1);
+  graphar::builder::VerticesBuilder builder2(vertex_info, vertex_type.base->root,
+                                             vertex_type.base->vertex_chunk_size * 1);
   builder.SetValidateLevel(graphar::ValidateLevel::strong_validate);
   vertex_count = 2;
   property_names = {"id", "domain", "extra"};
@@ -155,8 +204,7 @@ int main(int argc, char **argv) {
   MG_ASSERT(builder2.GetNum() == 0);
 
   // edge data
-  graphar::builder::EdgesBuilder builder3(edge_info, edge_type.base.root,
-                                                         graphar::AdjListType::ordered_by_dest, 1025);
+  graphar::builder::EdgesBuilder builder3(edge_info, edge_type.base->root, graphar::AdjListType::ordered_by_dest, 1025);
   builder.SetValidateLevel(graphar::ValidateLevel::strong_validate);
   int edge_count = 4;
   property_names = {"created"};
