@@ -29,10 +29,10 @@ struct GARDatabaseConfig {
     std::string edge_metadata_suffix{".edge.yaml"};
     std::filesystem::path vertex_folder_prefix{"vertex"};
     std::filesystem::path edge_folder_prefix{"edge"};
-    uint64_t vertex_chunk_size{1024};
-    uint64_t edge_chunk_size{1024};
-    uint64_t edge_src_chunk_size{1024};
-    uint64_t edge_dst_chunk_size{1024};
+    int64_t vertex_chunk_size{1024};
+    int64_t edge_chunk_size{1024};
+    int64_t edge_src_chunk_size{1024};
+    int64_t edge_dst_chunk_size{1024};
     bool is_directed{false};
     graphar::AdjListType ordering;
   } * base;

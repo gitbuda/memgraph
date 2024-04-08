@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <filesystem>
 #include <memory>
 #include <vector>
 
 #include <gar/api.h>
+#include <gar/graph.h>
 #include <gar/writer/edges_builder.h>
 #include <gar/writer/vertices_builder.h>
 #include <gflags/gflags.h>
@@ -133,6 +133,15 @@ int main(int argc, char **argv) {
   spdlog::info("dump edges collection successfully!");
   builder3.Clear();
   MG_ASSERT(builder3.GetNum() == 0);
+
+  // std::string path = "/tmp/todo/data.yml";
+  // auto graph_info = graphar::GraphInfo::Load(path).value();
+  // std::string label = "person";
+  // auto maybe_vertices_collection =
+  //     graphar::VerticesCollection::Make(graph_info, label);
+  // MG_ASSERT(!maybe_vertices_collection.has_error());
+  // auto vertices = maybe_vertices_collection.value();
+  // auto tmp = vertices->find(0);
 
   return 0;
 }

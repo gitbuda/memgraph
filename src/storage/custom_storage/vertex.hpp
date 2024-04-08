@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <gar/graph.h>
 #include <map>
 #include <vector>
 
@@ -22,6 +23,10 @@ namespace memgraph::storage::custom_storage {
 struct Vertex {
   std::vector<storage::LabelId> labels;
   std::map<storage::PropertyId, storage::PropertyValue> properties;
+};
+
+struct GARVertex {
+  graphar::Vertex *vertex;
 };
 
 }  // namespace memgraph::storage::custom_storage
