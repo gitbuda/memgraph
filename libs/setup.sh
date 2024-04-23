@@ -162,7 +162,7 @@ declare -A secondary_urls=(
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="http://github.com/memgraph/mgcxx.git"
-  ["graphar"]="https://github.com/alibaba/GraphAr.git"
+  ["graphar"]="https://github.com/apache/incubator-graphar.git"
 )
 
 # antlr
@@ -299,11 +299,10 @@ repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "
 ./prepare.sh
 popd
 
-
 # mgcxx (text search)
 mgcxx_tag="v0.0.6"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
-#
+
 # GraphAr 2024-03
 graphar_tag="v0.11.4"
 repo_clone_try_double "${primary_urls[graphar]}" "${secondary_urls[graphar]}" "graphar" "$graphar_tag" true
