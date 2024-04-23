@@ -9,12 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <memory>
+
 #include "query/interpreter_context.hpp"
 
 #include "query/interpreter.hpp"
 #include "storage/custom_storage/storage.hpp"
 #include "system/include/system/system.hpp"
 namespace memgraph::query {
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
 InterpreterContext::InterpreterContext(
     InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,

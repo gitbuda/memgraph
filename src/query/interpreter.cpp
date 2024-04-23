@@ -401,8 +401,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't unregister replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
@@ -468,8 +479,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't register replica instance since instance with such replication endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't register replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
@@ -505,7 +527,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
-    coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    switch (status) {
+      using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
+      case ID_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
+      case BOLT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
+      case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator since instance with such coordinator server already exists!");
+      case SUCCESS:
+        break;
+    }
     spdlog::info("Added instance on coordinator server {}", maybe_coordinator_server->SocketAddress());
   }
 
@@ -519,8 +553,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't set instance to main since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't set instance to main since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
       case COULD_NOT_PROMOTE_TO_MAIN:
@@ -532,7 +577,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
       case LOCK_OPENED:
         throw QueryRuntimeException(
-            "Couldn't register replica instance because because the last action didn't finish successfully!");
+            "Couldn't set instance to main instance because because the last action didn't finish successfully!");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case FAILED_TO_CLOSE_LOCK:
@@ -1791,10 +1836,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx_.user_or_role = user_or_role;
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(std::move(user_or_role), dba);
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
@@ -3330,7 +3376,9 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
   callback.fn = [&db, dba]() mutable {
     auto storage_mode = db->GetStorageMode();
     if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
+      throw utils::BasicException(
+          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
+          "IN_MEMORY_ANALYTICAL'");
     }
     dba->DropGraph();
 

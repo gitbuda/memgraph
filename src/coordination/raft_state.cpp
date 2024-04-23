@@ -11,28 +11,31 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/raft_state.hpp"
+#include <algorithm>
+#include <chrono>
+#include <functional>
+#include <optional>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
-#include <chrono>
+#include "json/json.hpp"
 
 namespace memgraph::coordination {
 
 using nuraft::asio_service;
 using nuraft::cb_func;
 using nuraft::CbReturnCode;
-using nuraft::cmd_result;
 using nuraft::cs_new;
 using nuraft::ptr;
 using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
-using raft_result = cmd_result<ptr<buffer>>;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)
@@ -44,6 +47,10 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
 
+// Call to this function results in call to
+// coordinator instance, make sure everything is initialized in coordinator instance
+// prior to calling InitRaftServer. To be specific, this function
+// will call `become_leader_cb_`
 auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;
@@ -100,14 +107,6 @@ auto RaftState::InitRaftServer() -> void {
   } while (!maybe_stop());
 
   throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
-}
-
-auto RaftState::MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
-                              BecomeFollowerCb &&become_follower_cb) -> RaftState {
-  auto raft_state = RaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
-
-  raft_state.InitRaftServer();
-  return raft_state;
 }
 
 RaftState::~RaftState() {
@@ -176,9 +175,20 @@ auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoor
          ranges::to<std::vector>();
 }
 
-auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
+auto RaftState::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig> {
+  std::vector<ptr<srv_config>> srv_configs;
+  raft_server_->get_srv_config_all(srv_configs);
+  auto const leader_id = raft_server_->get_leader();
+  auto const transform_func = [](auto const &srv_config) -> CoordinatorToCoordinatorConfig {
+    return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
+  };
+  auto maybe_leader_srv_config =
+      std::ranges::find_if(srv_configs, [&](auto const &srv_config) { return leader_id == srv_config->get_id(); });
+  return maybe_leader_srv_config == srv_configs.end() ? std::nullopt
+                                                      : std::make_optional(transform_func(*maybe_leader_srv_config));
+}
 
-auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
+auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::AppendOpenLock() -> bool {
   auto new_log = CoordinatorStateMachine::SerializeOpenLock();
@@ -382,6 +392,10 @@ auto RaftState::IsLockOpened() const -> bool { return state_machine_->IsLockOpen
 
 auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
   return state_machine_->GetInstanceUUID(instance_name);
+}
+
+auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
+  return state_machine_->TryGetCurrentMainName();
 }
 
 auto RaftState::GetRoutingTable() const -> RoutingTable {
