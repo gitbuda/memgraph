@@ -11,7 +11,6 @@
 
 #include "storage/custom_storage/storage.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/logging.hpp"
 
 namespace memgraph::storage::custom_storage {
 

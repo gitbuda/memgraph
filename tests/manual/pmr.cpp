@@ -9,24 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include <iostream>
+#include <memory_resource>
+#include <string>
 
-#include <gar/graph.h>
-#include <map>
-#include <vector>
+int main() {
+  std::pmr::monotonic_buffer_resource pool;
+  std::pmr::vector<std::pmr::string> data{&pool};
 
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
+  data.emplace_back("bla");
 
-namespace memgraph::storage::custom_storage {
-
-struct Vertex {
-  std::vector<storage::LabelId> labels;
-  std::map<storage::PropertyId, storage::PropertyValue> properties;
-};
-
-struct GARVertex {
-  graphar::Vertex *vertex;
-};
-
-}  // namespace memgraph::storage::custom_storage
+  for (const auto &item : data) {
+    std::cout << item << std::endl;
+  }
+  return 0;
+}

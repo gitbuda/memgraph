@@ -14,7 +14,7 @@
 #include <list>
 
 #include "storage/custom_storage/gar_database.hpp"
-#include "storage/custom_storage/vertex.hpp"
+#include "storage/custom_storage/types.hpp"
 
 namespace memgraph::storage::custom_storage {
 

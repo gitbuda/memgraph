@@ -58,3 +58,6 @@ target_link_libraries(${test_prefix}ssl_server mg-communication)
 
 add_manual_test(graphar.cpp)
 target_link_libraries(${test_prefix}graphar graphar mg-utils)
+
+add_manual_test(pmr.cpp)
+target_link_libraries(${test_prefix}pmr mg-utils)
