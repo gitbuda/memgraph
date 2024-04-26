@@ -27,6 +27,12 @@ namespace memgraph::storage::custom_storage {
 //   * parallelization
 //   * ASYNC disk/network access
 //   * per database, maybe even isolated data cache
+//   * global cache required for both fast Cypher create_edge + BFS
+//       * https://www.boost.org/doc/libs/1_85_0/boost/compute/detail/lru_cache.hpp -> is there a concurrent one?
+//       * https://github.com/facebook/hhvm/blob/master/hphp/util/concurrent-lru-cache.h
+//       * https://github.com/tstarling/thread-safe-lru...
+//       * in ON_DISK we have Transaction -> Skiplist
+//       * take a look under utils/cache.hpp and utils/lru_cache.hpp
 
 // Target queries:
 //   CREATE (:Label {props});                                                            // single vertex create

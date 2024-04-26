@@ -20,7 +20,7 @@
 
 namespace memgraph::query::plan {
 class CreateNode;
-}
+}  // namespace memgraph::query::plan
 
 namespace memgraph::query::custom_cursors {
 

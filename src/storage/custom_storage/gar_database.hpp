@@ -19,6 +19,8 @@
 
 #include "utils/logging.hpp"
 
+// TODO(gitbuda): Add simple implementation of transactional support.
+
 namespace memgraph::storage::custom_storage {
 
 struct GARDatabaseConfig {

@@ -21,11 +21,18 @@
 
 namespace memgraph::storage::custom_storage {
 
+// TODO(gitbuda): Use memgraph::storage::PropertyValue here beucase it will be allocator aware.
 using PropertyValue = std::variant<int64_t, std::pmr::string>;
 
+// NOTE: This should be allocator aware because after import, all that could be deleted.
+//   * C++Weekly#235 -> https://www.youtube.com/watch?v=vXJ1dwJ9QkI
+//   * C++Weekly#236 -> https://www.youtube.com/watch?v=2LAsqp7UrNs
+
+// TODO(gitbuda): Make and test Vertex being allocator aware.
 struct Vertex {
+  // This is here because of the hybrid-schema option (having different type of IDs)
   PropertyValue id;
-  std::pmr::vector<std::pmr::string> labels;
+  std::pmr::vector<std::pmr::string> labels;  // NOTE: GAR only supports one label per vertex!
   std::pmr::unordered_map<std::string, PropertyValue> properties;
 };
 
