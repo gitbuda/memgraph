@@ -16,7 +16,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/scoped_profile.hpp"
-#include "storage/custom_storage/vertex.hpp"
+#include "storage/custom_storage/types.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::custom_cursors {

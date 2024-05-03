@@ -12,9 +12,13 @@
 #pragma once
 
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 
 // TODO(gitbuda): What is the right type for IDs?
 // TODO(gitbuda): How to safely create all PMR values with minimal code and maximal flexibility?
@@ -32,8 +36,10 @@ using PropertyValue = std::variant<int64_t, std::pmr::string>;
 struct Vertex {
   // This is here because of the hybrid-schema option (having different type of IDs)
   PropertyValue id;
-  std::pmr::vector<std::pmr::string> labels;  // NOTE: GAR only supports one label per vertex!
-  std::pmr::unordered_map<std::string, PropertyValue> properties;
+  std::vector<std::string> labels;
+  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> properties;
+  // std::pmr::vector<std::pmr::string> labels;  // NOTE: GAR only supports one label per vertex!
+  // std::pmr::unordered_map<std::string, PropertyValue> properties;
 };
 
 struct Edge {
