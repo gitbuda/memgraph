@@ -109,6 +109,7 @@ class NamedLogicalOperator {
  public:
   mutable const DbAccessor *dba_{nullptr};
   virtual std::string ToString() const = 0;
+  virtual ~NamedLogicalOperator() = default;
 };
 
 /// Base class for logical operators.
