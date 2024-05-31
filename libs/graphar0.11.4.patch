@@ -1,0 +1,15 @@
+diff --git a/cpp/src/filesystem.cc b/cpp/src/filesystem.cc
+index cd55a6e..2692121 100644
+--- a/cpp/src/filesystem.cc
++++ b/cpp/src/filesystem.cc
+@@ -76,8 +76,8 @@ static Status CastToLargeOffsetArray(
+   return Status::OK();
+ }
+ 
+-Result<arrow::internal::Uri> ParseFileSystemUri(const std::string& uri_string) {
+-  arrow::internal::Uri uri;
++Result<arrow::util::Uri> ParseFileSystemUri(const std::string& uri_string) {
++  arrow::util::Uri uri;
+   RETURN_NOT_ARROW_OK(uri.Parse(uri_string));
+   return std::move(uri);
+ }

@@ -338,3 +338,9 @@ add_external_project(mgcxx
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+
+# Setup GraphAr
+import_external_library(graphar SHARED
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/lib/libgar.so
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/include
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp)

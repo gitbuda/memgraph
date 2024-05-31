@@ -27,6 +27,7 @@ enum class Experiments : uint8_t {
   SYSTEM_REPLICATION = 1 << 0,
   TEXT_SEARCH = 1 << 1,
   HIGH_AVAILABILITY = 1 << 2,
+  ALTERNATIVE_STORAGE = 1 << 3,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);

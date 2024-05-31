@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/plan/cursor.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
@@ -34,56 +35,10 @@
 
 namespace memgraph::query {
 
-struct ExecutionContext;
 class ExpressionEvaluator;
-class Frame;
 class SymbolTable;
 
 namespace plan {
-
-/// Base class for iteration cursors of @c LogicalOperator classes.
-///
-/// Each @c LogicalOperator must produce a concrete @c Cursor, which provides
-/// the iteration mechanism.
-class Cursor {
- public:
-  /// Run an iteration of a @c LogicalOperator.
-  ///
-  /// Since operators may be chained, the iteration may pull results from
-  /// multiple operators.
-  ///
-  /// @param Frame May be read from or written to while performing the
-  ///     iteration.
-  /// @param ExecutionContext Used to get the position of symbols in frame and
-  ///     other information.
-  ///
-  /// @throws QueryRuntimeException if something went wrong with execution
-  virtual bool Pull(Frame &, ExecutionContext &) = 0;
-
-  /// Resets the Cursor to its initial state.
-  virtual void Reset() = 0;
-
-  /// Perform cleanup which may throw an exception
-  virtual void Shutdown() = 0;
-
-  virtual ~Cursor() = default;
-};
-
-/// unique_ptr to Cursor managed with a custom deleter.
-/// This allows us to use utils::MemoryResource for allocation.
-using UniqueCursorPtr = std::unique_ptr<Cursor, std::function<void(Cursor *)>>;
-
-template <class TCursor, class... TArgs>
-std::unique_ptr<Cursor, std::function<void(Cursor *)>> MakeUniqueCursorPtr(utils::Allocator<TCursor> allocator,
-                                                                           TArgs &&...args) {
-  auto *cursor = allocator.template new_object<TCursor>(std::forward<TArgs>(args)...);
-  auto dtr = [allocator](Cursor *base_ptr) mutable {
-    auto *p = static_cast<TCursor *>(base_ptr);
-    allocator.delete_object(p);
-  };
-  // TODO: not std::function
-  return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, std::move(dtr));
-}
 
 class Once;
 class CreateNode;

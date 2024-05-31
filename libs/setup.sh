@@ -129,6 +129,7 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
+  ["graphar"]="http://$local_cache_host/git/GraphAr.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -161,6 +162,7 @@ declare -A secondary_urls=(
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="http://github.com/memgraph/mgcxx.git"
+  ["graphar"]="https://github.com/apache/incubator-graphar.git"
 )
 
 # antlr
@@ -303,3 +305,8 @@ popd
 # mgcxx (text search)
 mgcxx_tag="v0.0.6"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
+
+# GraphAr 2024-03
+graphar_tag="v0.11.4"
+repo_clone_try_double "${primary_urls[graphar]}" "${secondary_urls[graphar]}" "graphar" "$graphar_tag" true
+git apply ../graphar0.11.4.patch

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage_test_utils.hpp"
+#include "storage/v2/storage_mode.hpp"
 
 size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view) {
   auto vertices = storage_accessor.Vertices(view);
@@ -27,5 +28,7 @@ std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode
       return "IN_MEMORY_TRANSACTIONAL";
     case memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL:
       return "ON_DISK_TRANSACTIONAL";
+    case memgraph::storage::StorageMode::ALTERNATIVE_STORAGE:
+      return "ALTERNATIVE_STORAGE";
   }
 }

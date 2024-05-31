@@ -31,6 +31,7 @@ using namespace std::string_view_literals;
 namespace memgraph::flags {
 
 auto const mapping = std::map{std::pair{"system-replication"sv, Experiments::SYSTEM_REPLICATION},
+                              std::pair{"alternative-storage"sv, Experiments::ALTERNATIVE_STORAGE},
                               std::pair{"text-search"sv, Experiments::TEXT_SEARCH},
                               std::pair{"high-availability"sv, Experiments::HIGH_AVAILABILITY}};
 
