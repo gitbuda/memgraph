@@ -309,3 +309,4 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 # GraphAr 2024-03
 graphar_tag="v0.11.4"
 repo_clone_try_double "${primary_urls[graphar]}" "${secondary_urls[graphar]}" "graphar" "$graphar_tag" true
+git apply ../graphar0.11.4.patch

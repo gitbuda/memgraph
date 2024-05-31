@@ -20,6 +20,7 @@
 #include "utils/logging.hpp"
 
 // TODO(gitbuda): Add simple implementation of transactional support.
+// TODO(gitbuda): Since only one label per node is supported -> make a reserved property for other labels.
 
 namespace memgraph::storage::custom_storage {
 
