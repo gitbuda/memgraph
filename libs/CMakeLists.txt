@@ -341,6 +341,6 @@ import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INC
 
 # Setup GraphAr
 import_external_library(graphar SHARED
-  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/lib/libgar.so
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/lib/libgraphar.so
   ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/include
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp)

@@ -15,7 +15,7 @@
 #include <memory>
 #include <vector>
 
-#include <gar/api.h>
+#include <graphar/api.h>
 
 #include "utils/logging.hpp"
 

@@ -306,7 +306,6 @@ popd
 mgcxx_tag="v0.0.6"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
-# GraphAr 2024-03
-graphar_tag="v0.11.4"
+# GraphAr 2024-07-02
+graphar_tag="v0.12.0"
 repo_clone_try_double "${primary_urls[graphar]}" "${secondary_urls[graphar]}" "graphar" "$graphar_tag" true
-git apply ../graphar0.11.4.patch
