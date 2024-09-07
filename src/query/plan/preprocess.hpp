@@ -95,6 +95,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
+  bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
@@ -252,6 +253,11 @@ class PatternVisitor : public ExpressionVisitor<void> {
     op.expression2_->Accept(*this);
   }
 
+  void Visit(RangeOperator &op) override {
+    op.expr1_->Accept(*this);
+    op.expr2_->Accept(*this);
+  }
+
   void Visit(SubscriptOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
@@ -288,6 +294,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
   void Visit(RegexMatch &op) override{};
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
+  void Visit(EnumValueAccess &op) override{};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
@@ -628,6 +635,9 @@ struct QueryParts {
   std::vector<QueryPart> query_parts = {};
   /// Distinct flag, determined by the query combinator
   bool distinct = false;
+  /// Commit frequency for periodic commit
+  Expression *commit_frequency = nullptr;
+  bool is_subquery = false;
 };
 
 /// @brief Convert the AST to multiple @c QueryParts.
@@ -636,6 +646,25 @@ struct QueryParts {
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *, bool is_subquery);
+
+/**
+ * @brief Split expression on AND operators; useful for splitting single filters
+ *
+ * @param expression
+ * @return std::vector<Expression *>
+ */
+std::vector<Expression *> SplitExpressionOnAnd(Expression *expression);
+
+/**
+ * @brief Substitute an expression with a new one.
+ * @note Whole expression gets split at every AND and its branches are compared and subsituted
+ *
+ * @param expr whole expression
+ * @param old expression to replace
+ * @param in expression to embed
+ * @return Expression *
+ */
+Expression *SubstituteExpression(Expression *expr, Expression *old, Expression *in);
 
 }  // namespace memgraph::query::plan

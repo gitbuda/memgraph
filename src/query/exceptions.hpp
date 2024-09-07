@@ -407,6 +407,20 @@ class ReplicationException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)
 };
 
+class WriteQueryOnReplicaException : public QueryException {
+ public:
+  WriteQueryOnReplicaException() : QueryException("Write query forbidden on the replica!") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnReplicaException)
+};
+
+class WriteQueryOnMainException : public QueryException {
+ public:
+  WriteQueryOnMainException()
+      : QueryException(
+            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
+};
+
 class TransactionQueueInMulticommandTxException : public QueryException {
  public:
   TransactionQueueInMulticommandTxException()
@@ -453,11 +467,18 @@ class TextSearchDisabledException : public TextSearchException {
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
-class CreateEnumInMulticommandTxException : public QueryException {
+class EnumModificationInMulticommandTxException : public QueryException {
  public:
-  CreateEnumInMulticommandTxException()
-      : QueryException("Create enum can not be executed in multicommand transactions.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(CreateEnumInMulticommandTxException)
+  EnumModificationInMulticommandTxException()
+      : QueryException("Enum creation or modifications can not be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(EnumModificationInMulticommandTxException)
+};
+
+class TtlInMulticommandTxException : public QueryException {
+ public:
+  TtlInMulticommandTxException()
+      : QueryException("TTL configuration can not be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TtlInMulticommandTxException)
 };
 
 }  // namespace memgraph::query

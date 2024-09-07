@@ -22,8 +22,9 @@
 #include "query/trigger.hpp"
 #include "utils/async_timer.hpp"
 
-#include "query/frame_change.hpp"
 #include "storage/custom_storage/storage.hpp"
+#include "query/frame_change.hpp"
+#include "query/hops_limit.hpp"
 
 namespace memgraph::query {
 
@@ -95,9 +96,12 @@ struct ExecutionContext {
   std::shared_ptr<utils::AsyncTimer> timer;
   std::shared_ptr<QueryUserOrRole> user_or_role;
   int64_t number_of_hops{0};
+  HopsLimit hops_limit;
+  std::optional<uint64_t> periodic_commit_frequency;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
+  DatabaseAccessProtector db_acc;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

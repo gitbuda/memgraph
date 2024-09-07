@@ -51,8 +51,19 @@ class DiffSetup:
 
     def _check_diff_workflow(self) -> bool:
         for file in os.popen(f"git diff --name-only {self._base_branch}").read().splitlines():
-            if not file.startswith(".github/workflows/") or file.startswith(".github/workflows/diff"):
-                return True
+            if file.startswith("docs/"):
+                continue
+            elif file.startswith("licenses/"):
+                continue
+            elif file.endswith(".md"):
+                continue
+            elif file.startswith(".clang-format"):
+                continue
+            elif file.startswith("CODEOWNERS"):
+                continue
+            elif file.startswith(".github/workflows/") and not file.startswith(".github/workflows/diff"):
+                continue
+            return True
         return False
 
     def _check_pr_label(self, build: str, test: str, pr_labels: list) -> bool:
@@ -84,6 +95,8 @@ class DiffSetup:
         print(f"Event name: {event_name}")
         if event_name == "merge_group":
             self._get_default_test_suite(self._check_diff_workflow())
+        elif event_name == "schedule":
+            self._get_default_test_suite(True)
         elif event_name == "pull_request":
             if self._check_diff_workflow():
                 self._setup_pull_request()

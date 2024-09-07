@@ -93,11 +93,14 @@ auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &u
                                                             ReplicationClientsInfo replication_clients_info) const
     -> bool {
   try {
+    spdlog::trace("Sending PromoteReplicaToMainRpc");
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
+    spdlog::trace("Awaiting response after sending PromoteReplicaToMainRpc");
     if (!stream.AwaitResponse().success) {
       spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
       return false;
     }
+    spdlog::trace("Received successful response to PromoteReplicaToMainRPC");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
@@ -116,7 +119,7 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
     spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to set instance {} to replica!", instance_name);
+    spdlog::error("Failed to receive RPC response when demoting instance {} to replica!", instance_name);
   }
   return false;
 }
@@ -134,7 +137,7 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
     spdlog::info("Sent request RPC from coordinator to register replica instance on main!");
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to register instance {} to replica!", instance_name);
+    spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);
   }
   return false;
 }
@@ -158,7 +161,7 @@ auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instan
     }
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to unregister replica!");
+    spdlog::error("Failed to receive RPC response when unregistering replica!");
   }
   return false;
 }
@@ -170,7 +173,7 @@ auto ReplicationInstanceClient::SendGetInstanceUUIDRpc() const
     auto res = stream.AwaitResponse();
     return res.uuid;
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("RPC error occured while sending GetInstance UUID RPC");
+    spdlog::error("Failed to receive RPC response when sending GetInstance UUID RPC");
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
 }
@@ -184,7 +187,7 @@ auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
     }
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("Failed to enable writing on main!");
+    spdlog::error("Failed to receive RPC response when enabling writing on main!");
   }
   return false;
 }
@@ -196,7 +199,7 @@ auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
     return stream.AwaitResponse().database_histories;
 
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("RPC error occured while sending GetInstance UUID RPC");
+    spdlog::error("Failed to receive RPC response when sending GetInstance UUID RPC");
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
 }

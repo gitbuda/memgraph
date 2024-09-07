@@ -1,5 +1,5 @@
 (ns jepsen.memgraph.habank
-  "TODO, fill"
+  "Jepsen's bank test adapted to fit as Memgraph High Availability."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [clojure.string :as string]
@@ -39,20 +39,20 @@
 
 (defn accounts-exist?
   "Check if accounts are created."
-  [conn]
-  (utils/with-session conn session
-    (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
-      (not-empty accounts))))
+  [session]
+  (let [accounts (mgclient/get-all-accounts session)
+        safe-accounts (or accounts [])
+        extracted-accounts (->> safe-accounts (map :n) (reduce conj []))]
+    (not-empty extracted-accounts)))
 
 (defn transfer-money
-  "Transfer money from one account to another by some amount
+  "Transfer money from 1st account to the 2nd by some amount
   if the account you're transfering money from has enough
   money."
-  [conn op from to amount]
-  (dbclient/with-transaction conn tx
-    (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
-      (mgclient/update-balance tx {:id from :amount (- amount)})
-      (mgclient/update-balance tx {:id to :amount amount})))
+  [tx op from to amount]
+  (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
+    (mgclient/update-balance tx {:id from :amount (- amount)})
+    (mgclient/update-balance tx {:id to :amount amount}))
   (info "Transfered money from account" from "to account" to "with amount" amount)
   (assoc op :type :ok))
 
@@ -79,7 +79,7 @@
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
       ((haclient/add-coordinator-instance
-        (second coord-config)) session)
+        (first coord-config) (second coord-config)) session)
       (info "Added coordinator:" (first coord-config))
       (catch Exception e
         (if (string/includes? (str e) "id already exists")
@@ -94,12 +94,12 @@
 
 (defn insert-data
   "Delete existing accounts and create new ones."
-  [session op]
+  [txn op]
   (info "Deleting all accounts...")
-  (mgclient/detach-delete-all session)
+  (mgclient/detach-delete-all txn)
   (info "Creating accounts...")
   (dotimes [i utils/account-num]
-    (mgclient/create-account session {:id i :balance utils/starting-balance})
+    (mgclient/create-account txn {:id i :balance utils/starting-balance})
     (info "Created account:" i))
   (assoc op :type :ok))
 
@@ -165,14 +165,15 @@
         (if (data-instance? node)
           (let [transfer-info (:value op)]
             (try
-              (if (accounts-exist? bolt-conn)
-                (transfer-money
-                 bolt-conn
-                 op
-                 (:from transfer-info)
-                 (:to transfer-info)
-                 (:amount transfer-info)) ; Returns op
-                (assoc op :type :info :value "Transfer allowed only when accounts exist."))
+              (dbclient/with-transaction bolt-conn txn
+                (if (accounts-exist? txn)
+                  (transfer-money
+                   txn
+                   op
+                   (:from transfer-info)
+                   (:to transfer-info)
+                   (:amount transfer-info)) ; Returns op
+                  (assoc op :type :info :value "Transfer allowed only when accounts exist.")))
               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                 (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
               (catch Exception e
@@ -190,8 +191,8 @@
         ; If leader changes, registration should already be done or not a leader will be printed.
         (if (= first-leader node)
 
-          (utils/with-session bolt-conn session
-            (try
+          (try
+            (utils/with-session bolt-conn session
               (when (not @registered-replication-instances?)
                 (register-replication-instances session nodes-config)
                 (reset! registered-replication-instances? true))
@@ -204,30 +205,34 @@
                 (set-instance-to-main session first-main)
                 (reset! main-set? true))
 
-              (assoc op :type :ok) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
+              (assoc op :type :ok)) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
 
-              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                (info "Registering instances failed because node" node "is down.")
-                (utils/process-service-unavilable-exc op node))
-              (catch Exception e
-                (if (string/includes? (str e) "not a leader")
-                  (assoc op :type :info :value "Not a leader")
-                  (assoc op :type :fail :value (str e))))))
+            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+              (info "Registering instances failed because node" node "is down.")
+              (utils/process-service-unavilable-exc op node))
+            (catch Exception e
+              (if (string/includes? (str e) "not a leader")
+                (assoc op :type :info :value "Not a leader")
+                (assoc op :type :fail :value (str e)))))
 
           (assoc op :type :info :value "Not coordinator"))
 
         :initialize-data
         (if (data-instance? node)
 
-          (utils/with-session bolt-conn session
-            (try
-              (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
-                (if (empty? accounts)
-                  (insert-data session op) ; Return assoc op :type :ok
-                  (assoc op :type :info :value "Accounts already exist.")))
-              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                (utils/process-service-unavilable-exc op node))
-              (catch Exception e
+          (try
+            (dbclient/with-transaction bolt-conn txn
+              (if-not (accounts-exist? txn)
+                (insert-data txn op) ; Return assoc op :type :ok
+                (assoc op :type :info :value "Accounts already exist.")))
+            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+              (utils/process-service-unavilable-exc op node))
+            (catch Exception e
+              (if (utils/sync-replica-down? e)
+                  ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
+                  ; replica and transaction will commit on main.
+                (assoc op :type :ok)
+
                 (if (or (utils/query-forbidden-on-replica? e)
                         (utils/query-forbidden-on-main? e))
                   (assoc op :type :info :value (str e))
@@ -250,9 +255,12 @@
   (map #(select-keys % [:health :role]) single-read))
 
 (defn get-coordinators
-  "From list of roles, returns those which are coordinator."
+  "From list of roles, returns those which are coordinators."
   [roles]
-  (filter #(= "coordinator" %) roles))
+  (let [leader-followers #{"leader"
+                           "follower"}]
+
+    (filter leader-followers roles)))
 
 (defn get-mains
   "From list of roles, returns those which are main."
@@ -268,20 +276,6 @@
   "Check if there is more than one main in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
   [roles]
   (> (count (get-mains roles)) 1))
-
-(defn alive-instances-no-main
-  "When all 3 data instances are alive, there should be exactly one main and 2 replicas."
-  [roles-health]
-  (let [mains (filter #(= "main" (:role %)) roles-health)
-        replicas (filter #(= "replica" (:role %)) roles-health)
-        all-data-instances-up (and
-                               (every? #(= "up" (:health %)) mains)
-                               (every? #(= "up" (:health %)) replicas))]
-
-    (if all-data-instances-up
-      (and (= 1 (count mains))
-           (= 2 (count replicas)))
-      true)))
 
 (defn habank-checker
   "High availability bank checker"
@@ -334,105 +328,75 @@
             more-than-one-main (->> coord->roles
                                     (filter (fn [[_ reads]] (some more-than-one-main reads)))
                                     (keys))
-            ; Mapping from coordinator to reads containing only health and role.
-            coord->roles-health (->> coord->full-reads
-                                     (map (fn [[node reads]]
-                                            [node (map single-read-to-role-and-health reads)]))
-                                     (into {}))
-            ; Check not-used, maybe will be added in the future.
-            _ (->> coord->roles-health
-                   (filter (fn [[_ reads]] (some alive-instances-no-main reads)))
-                   (vals))
             ; Node is considered empty if all reads are empty -> probably a mistake in registration.
             empty-si-nodes (->> coord->reads
                                 (filter (fn [[_ reads]]
                                           (every? empty? reads)))
                                 (keys))
-            coordinators (set (keys coord->reads)) ; Only coordinators should run SHOW INSTANCES
+            coordinators (set (keys coord->full-reads)) ; Only coordinators should run SHOW INSTANCES. Test that all 3 coordinators returned
+            ; at least once correct SHOW INSTANCES' response.
+
             ok-data-reads  (->> history
                                 (filter #(= :ok (:type %)))
                                 (filter #(= :read-balances (:f %))))
-            bad-data-reads (->> ok-data-reads
-                                (map #(->> % :value))
-                                (filter #(= (count (:accounts %)) utils/account-num))
-                                (map (fn [value]
-                                       (let [balances  (map :balance (:accounts value))
-                                             expected-total (* utils/account-num utils/starting-balance)]
-                                         (cond (and
-                                                (not-empty balances)
-                                                (not=
-                                                 expected-total
-                                                 (reduce + balances)))
-                                               {:type :wrong-total
-                                                :expected expected-total
-                                                :found (reduce + balances)
-                                                :value value}
 
-                                               (some neg? balances)
-                                               {:type :negative-value
-                                                :found balances
-                                                :op value}))))
-                                (filter identity)
-                                (into []))
-            empty-data-nodes (let [all-nodes (->> ok-data-reads
-                                                  (map #(-> % :value :node))
-                                                  (reduce conj #{}))]
-                               (->> all-nodes
-                                    (filter (fn [node]
-                                              (every?
-                                               empty?
-                                               (->> ok-data-reads
-                                                    (map :value)
-                                                    (filter #(= node (:node %)))
-                                                    (map :accounts)))))
-                                    (filter identity)
-                                    (into [])))
+            ok-initialize-data (->> history
+                                    (filter #(= :ok (:type %)))
+                                    (filter #(= :initialize-data (:f %))))
 
-            result {:valid? (and (empty? empty-si-nodes)
-                                 (= coordinators #{"n4" "n5" "n6"})
-                                 (empty? coords-missing-reads)
-                                 (empty? more-than-one-main)
-                                 (empty? bad-data-reads)
-                                 (empty? empty-data-nodes)
-                                 (seq? full-si-reads) ; not-empty idiom
-                                 (empty? failed-setup-cluster)
-                                 (empty? failed-initialize-data)
-                                 (empty? failed-show-instances)
-                                 (empty? failed-read-balances))
-                    :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
-                    :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
-                    :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
-                    :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
-                    :empty-bad-data-reads? (empty? bad-data-reads)
-                    :empty-failed-setup-cluster? (empty? failed-setup-cluster)
-                    :empty-failed-initialize-data? (empty? failed-initialize-data)
-                    :empty-failed-show-instances? (empty? failed-show-instances)
-                    :empty-failed-read-balances? (empty? failed-read-balances)
-                    :full-si-reads-exist? (seq? full-si-reads)
-                    :empty-data-nodes? (empty? empty-data-nodes)}]
+            correct-data-reads (->> ok-data-reads
+                                    (map :value)
+                                    (filter :correct)
+                                    (map :node)
+                                    (into #{}))
 
-        (when (not (:correct-coordinators? result))
-          (assoc result :coordinators coordinators))
+            bad-data-reads (utils/analyze-bank-data-reads ok-data-reads utils/account-num utils/starting-balance)
 
-        (when (not (:empty-si-nodes? result))
-          (assoc result :empty-si-nodes empty-si-nodes))
+            empty-data-nodes (utils/analyze-empty-data-nodes ok-data-reads)
 
-        (when (not (:empty-data-nodes? result))
-          (assoc result :empty-data-nodes empty-data-nodes))
+            initial-result {:valid? (and (empty? empty-si-nodes)
+                                         (= coordinators #{"n4" "n5" "n6"})
+                                         (empty? coords-missing-reads)
+                                         (empty? more-than-one-main)
+                                         (empty? bad-data-reads)
+                                         (empty? empty-data-nodes)
+                                         (boolean (not-empty full-si-reads))
+                                         (= correct-data-reads #{"n1" "n2" "n3"})
+                                         (= (count ok-initialize-data) 1)
+                                         (empty? failed-setup-cluster)
+                                         (empty? failed-initialize-data)
+                                         (empty? failed-show-instances)
+                                         (empty? failed-read-balances))
+                            :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
+                            :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
+                            :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
+                            :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+                            :correct-data-reads-exist-on-all-nodes? (= correct-data-reads #{"n1" "n2" "n3"})
+                            :empty-bad-data-reads? (empty? bad-data-reads)
+                            :empty-failed-setup-cluster? (empty? failed-setup-cluster)
+                            :ok-initialize-data-once? (= (count ok-initialize-data) 1)
+                            :empty-failed-initialize-data? (empty? failed-initialize-data)
+                            :empty-failed-show-instances? (empty? failed-show-instances)
+                            :empty-failed-read-balances? (empty? failed-read-balances)
+                            :full-si-reads-exist? (boolean (not-empty full-si-reads))
+                            :empty-data-nodes? (empty? empty-data-nodes)}
 
-        (when (not (:empty-failed-setup-cluster? result))
-          (assoc result :failed-setup-cluster failed-setup-cluster))
+            updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
+                     {:key :empty-si-nodes :condition (not (:empty-si-nodes? initial-result)) :value empty-si-nodes}
+                     {:key :empty-data-nodes :condition (not (:empty-data-nodes? initial-result)) :value empty-data-nodes}
+                     {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
+                     {:key :failed-initialize-data :condition (not (:empty-failed-initialize-data? initial-result)) :value failed-initialize-data}
+                     {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}
+                     {:key :failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}
+                     {:key :correct-data-reads-on-nodes :condition (not (:correct-data-reads-exist-on-all-nodes? initial-result)) :value correct-data-reads}
+                     {:key :num-ok-initialize-data :condition (not (:ok-initialize-data-once? initial-result)) :value (count ok-initialize-data)}]]
 
-        (when (not (:empty-failed-initialize-data? result))
-          (assoc result :failed-initialize-data failed-initialize-data))
-
-        (when (not (:empty-failed-show-instances? result))
-          (assoc result :failed-show-instances failed-show-instances))
-
-        (when (not (:empty-failed-read-balances? result))
-          (assoc result :failed-read-balances failed-read-balances))
-
-        result))))
+        (reduce (fn [result update]
+                  (if (:condition update)
+                    (assoc result (:key update) (:value update))
+                    result))
+                initial-result
+                updates)))))
 
 (defn show-instances-reads
   "Create read action."

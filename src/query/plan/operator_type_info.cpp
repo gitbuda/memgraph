@@ -53,6 +53,9 @@ constexpr utils::TypeInfo query::plan::ScanAllById::kType{utils::TypeId::SCAN_AL
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{utils::TypeId::SCAN_ALL_BY_EDGE_TYPE,
                                                                 "ScanAllByEdgeType", &query::plan::ScanAll::kType};
 
+constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypeProperty::kType{
+    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY, "ScanAllByEdgeTypeProperty", &query::plan::ScanAll::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllByEdgeId",
                                                               &query::plan::ScanAll::kType};
 
@@ -163,4 +166,9 @@ constexpr utils::TypeInfo query::plan::HashJoin::kType{utils::TypeId::HASH_JOIN,
 
 constexpr utils::TypeInfo query::plan::RollUpApply::kType{utils::TypeId::ROLLUP_APPLY, "RollUpApply",
                                                           &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{utils::TypeId::PERIODIC_COMMIT, "PeriodicCommit",
+                                                             &query::plan::LogicalOperator::kType};
+constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PERIODIC_SUBQUERY, "PeriodicSubquery",
+                                                               &query::plan::LogicalOperator::kType};
 }  // namespace memgraph

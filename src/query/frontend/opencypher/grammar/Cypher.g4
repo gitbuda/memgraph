@@ -44,6 +44,8 @@ constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )
 
 storageInfo : STORAGE INFO ;
 
+activeUsersInfo : ACTIVE USERS INFO ;
+
 indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
@@ -52,11 +54,13 @@ edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
+metricsInfo : METRICS INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
 
-systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -256,6 +260,7 @@ atom : literal
      | parenthesizedExpression
      | functionInvocation
      | variable
+     | enumValueAccess
      ;
 
 literal : numberLiteral
@@ -356,6 +361,8 @@ createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 doubleLiteral : FloatingLiteral ;
+
+enumValueAccess : symbolicName ':' ':' symbolicName ;
 
 cypherKeyword : ALL
               | AND

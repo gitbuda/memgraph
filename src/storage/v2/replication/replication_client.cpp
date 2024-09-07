@@ -94,7 +94,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
           client_name, client_name, client_name);
     };
 #ifdef MG_ENTERPRISE
-    if (!memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()) {
+    if (!memgraph::flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator()) {
       log_error();
       return;
     }
@@ -256,7 +256,8 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     return false;
   }
 
-  auto task = [storage, db_acc = std::move(db_acc), this, replica_stream_obj = std::move(replica_stream)]() mutable {
+  auto task = [storage, db_acc = std::move(db_acc), this,
+               replica_stream_obj = std::move(replica_stream)]() mutable -> bool {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();
@@ -264,6 +265,8 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
       return replica_state_.WithLock(
           [storage, response, db_acc = std::move(db_acc), this, &replica_stream_obj](auto &state) mutable {
             replica_stream_obj.reset();
+            // When async replica executes this part of the code, the state could've changes since the check
+            // at the beginning of the function happened.
             if (!response.success || state == replication::ReplicaState::RECOVERY) {
               state = replication::ReplicaState::RECOVERY;
               // NOLINTNEXTLINE
@@ -286,11 +289,15 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
   };
 
   if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+    // When in ASYNC mode, we ignore the return value from task() and always return true
     client_.thread_pool_.AddTask(
         [task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { (void)task(); });
     return true;
   }
 
+  // If we are in SYNC mode, we return the result of task().
+  // If replica is in RECOVERY or stream wasn't correctly finalized, we return false
+  // If replica is READY, we return true
   return task();
 }
 
@@ -417,21 +424,6 @@ void ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t f
 void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
-}
-
-void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                                    const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                                    const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2) -> text index name not sent here
-  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, std::nullopt, label, properties, stats,
-                  property_stats, timestamp);
-}
-
-void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                    uint64_t timestamp) {
-  replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, edge_type, timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

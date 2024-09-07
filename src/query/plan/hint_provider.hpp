@@ -117,6 +117,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeType & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeType & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanAllByEdgeTypeProperty & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgeTypeProperty & /*unused*/) override { return true; }
+
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
 
@@ -219,6 +222,17 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(RollUpApply & /*unused*/) override { return true; }
+
+  bool PreVisit(PeriodicCommit & /*unused*/) override { return true; }
+  bool PostVisit(PeriodicCommit & /*unused*/) override { return true; }
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    op.input()->Accept(*this);
+    op.subquery_->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(PeriodicSubquery & /*op*/) override { return true; }
 
  private:
   const SymbolTable &symbol_table_;

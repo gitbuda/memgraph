@@ -37,6 +37,7 @@
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
@@ -327,6 +328,12 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
+    case memgraph::query::TypedValue::Type::Enum:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Enum doesn't exist."};
+    case memgraph::query::TypedValue::Type::Point2d:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Point2d doesn't exist."};
+    case memgraph::query::TypedValue::Type::Point3d:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Point3d doesn't exist."};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
@@ -705,6 +712,24 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
     }
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::Enum: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Enum doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::Point2d: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Point2d doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::Point3d: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Point3d doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
     }
   }
@@ -1507,41 +1532,42 @@ mgp_error mgp_local_date_time_equal(mgp_local_date_time *first, mgp_local_date_t
 }
 
 mgp_error mgp_local_date_time_get_year(mgp_local_date_time *local_date_time, int *year) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.year; }, year);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date().year; }, year);
 }
 
 mgp_error mgp_local_date_time_get_month(mgp_local_date_time *local_date_time, int *month) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.month; }, month);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date().month; }, month);
 }
 
 mgp_error mgp_local_date_time_get_day(mgp_local_date_time *local_date_time, int *day) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.day; }, day);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date().day; }, day);
 }
 
 mgp_error mgp_local_date_time_get_hour(mgp_local_date_time *local_date_time, int *hour) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.hour; }, hour);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().hour; }, hour);
 }
 
 mgp_error mgp_local_date_time_get_minute(mgp_local_date_time *local_date_time, int *minute) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.minute; }, minute);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().minute; }, minute);
 }
 
 mgp_error mgp_local_date_time_get_second(mgp_local_date_time *local_date_time, int *second) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.second; }, second);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().second; }, second);
 }
 
 mgp_error mgp_local_date_time_get_millisecond(mgp_local_date_time *local_date_time, int *millisecond) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.millisecond; },
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().millisecond; },
                         millisecond);
 }
 
 mgp_error mgp_local_date_time_get_microsecond(mgp_local_date_time *local_date_time, int *microsecond) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.microsecond; },
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().microsecond; },
                         microsecond);
 }
 
 mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, int64_t *timestamp) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.MicrosecondsSinceEpoch(); },
+  // Timestamps need to be in system time (UTC)
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.SysMicrosecondsSinceEpoch(); },
                         timestamp);
 }
 
@@ -1791,12 +1817,12 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
 }
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
-  memgraph::storage::PropertyValue result{std::map<std::string, memgraph::storage::PropertyValue>{}};
-  auto &result_map = result.ValueMap();
+  auto result_map = memgraph::storage::PropertyValue::map_t{};
+  result_map.reserve(map.items.size());
   for (const auto &[key, value] : map.items) {
     result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
   }
-  return result;
+  return memgraph::storage::PropertyValue{std::move(result_map)};
 }
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
@@ -1822,9 +1848,10 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      // Use generic system time (UTC)
       return memgraph::storage::PropertyValue{
           memgraph::storage::TemporalData{memgraph::storage::TemporalType::LocalDateTime,
-                                          value.local_date_time_v->local_date_time.MicrosecondsSinceEpoch()}};
+                                          value.local_date_time_v->local_date_time.SysMicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
@@ -3924,6 +3951,13 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << value.ValueZonedDateTime();
     case TypedValue::Type::Duration:
       return (*stream) << value.ValueDuration();
+    case TypedValue::Type::Enum:
+      // TODO: need to convert to EnumType::EnumValue form
+      LOG_FATAL("enum not printable - not yet implemented");
+    case TypedValue::Type::Point2d:
+      return (*stream) << CypherConstructionFor(value.ValuePoint2d());
+    case TypedValue::Type::Point3d:
+      return (*stream) << CypherConstructionFor(value.ValuePoint3d());
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
@@ -4242,8 +4276,9 @@ struct MgProcedureResultStream final {
   }
 };
 
-std::map<std::string, memgraph::storage::PropertyValue> CreateQueryParams(mgp_map *params) {
-  std::map<std::string, memgraph::storage::PropertyValue> query_params;
+memgraph::storage::PropertyValue::map_t CreateQueryParams(mgp_map *params) {
+  auto query_params = memgraph::storage::PropertyValue::map_t{};
+  query_params.reserve(params->items.size());
   for (auto &[k, v] : params->items) {
     query_params.emplace(k, ToPropertyValue(v));
   }
@@ -4287,9 +4322,10 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
 
-        const auto query_params = CreateQueryParams(params);
-
-        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params, {});
+        auto query_params_func = [&](memgraph::storage::Storage const *) -> memgraph::storage::PropertyValue::map_t {
+          return CreateQueryParams(params);
+        };
+        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
         for (const auto &header : prepare_query_result.headers) {

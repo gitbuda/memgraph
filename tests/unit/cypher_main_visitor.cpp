@@ -69,6 +69,9 @@ class Base {
 
   virtual EdgeTypeIx EdgeType(const std::string &edge_type_name) = 0;
 
+  // At end of test clear any persisted state
+  virtual void Reset() = 0;
+
   TypedValue LiteralValue(Expression *expression) {
     if (context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
@@ -131,6 +134,8 @@ class AstGenerator : public Base {
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
 
+  void Reset() override { ast_storage_ = AstStorage{}; }
+
   AstStorage ast_storage_;
 };
 
@@ -173,6 +178,8 @@ class ClonedAstGenerator : public Base {
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
 
+  void Reset() override { ast_storage_ = AstStorage{}; }
+
   AstStorage ast_storage_;
 };
 
@@ -197,6 +204,8 @@ class CachedAstGenerator : public Base {
   LabelIx Label(const std::string &name) override { return ast_storage_.GetLabelIx(name); }
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
+
+  void Reset() override { ast_storage_ = AstStorage{}; }
 
   AstStorage ast_storage_;
 };
@@ -250,6 +259,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
   }
 
   void TearDown() override {
+    GetParam()->Reset();
     // To release any_type
     procedure::gModuleRegistry.UnloadAllModules();
   }
@@ -291,6 +301,9 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
 
 const procedure::AnyType CypherMainVisitorTest::any_type{};
 
+/// DEVNOTE: I DO NOT LIKE THIS
+///          We are using global values that maybe have persistent state
+///          hence the need for calling Reset() in TearDown()
 std::shared_ptr<Base> gAstGeneratorTypes[] = {
     std::make_shared<AstGenerator>(),
     std::make_shared<OriginalAfterCloningAstGenerator>(),
@@ -2289,6 +2302,13 @@ TEST_P(CypherMainVisitorTest, DropUser) {
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER"), SyntaxException);
   check_auth_query(&ast_generator, "DROP USER user", AuthQuery::Action::DROP_USER, "user", "", "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, ShowCurrentUser) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT USERNAME"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW CURRENT USER", AuthQuery::Action::SHOW_CURRENT_USER, "", "", "", {}, {}, {},
+                   {});
 }
 
 TEST_P(CypherMainVisitorTest, ShowUsers) {
@@ -4902,11 +4922,18 @@ TEST_P(CypherMainVisitorTest, CreateEnumQuery) {
     const auto *query =
         dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD, BAD };"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->enum_values_.size(), 2);
+    ASSERT_EQ(query->enum_values_[0], "GOOD");
+    ASSERT_EQ(query->enum_values_[1], "BAD");
   }
   {
     const auto *query =
-        dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD };"));
+        dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM `Status` VALUES { `GOOD` };"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->enum_values_.size(), 1);
+    ASSERT_EQ(query->enum_values_[0], "GOOD");
   }
 
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status { GOOD, BAD };"), SyntaxException);
@@ -4921,4 +4948,213 @@ TEST_P(CypherMainVisitorTest, ShowEnumsQuery) {
   auto &ast_generator = *GetParam();
   const auto *query = dynamic_cast<ShowEnumsQuery *>(ast_generator.ParseQuery("SHOW ENUMS;"));
   ASSERT_NE(query, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, AlterEnumAddValueQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<AlterEnumAddValueQuery *>(ast_generator.ParseQuery("ALTER ENUM Status ADD VALUE MEDIUM;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->enum_value_, "MEDIUM");
+  }
+  {
+    const auto *query =
+        dynamic_cast<AlterEnumAddValueQuery *>(ast_generator.ParseQuery("ALTER ENUM `Status` ADD VALUE `MEDIUM`;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->enum_value_, "MEDIUM");
+  }
+
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status ADD VALUE { SOMETHING };"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status ADD VALUE { SOMETHING, MEDIUM };"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status VALUES MEDIUM;"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER Status ADD VALUE MEDIUM;"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status ADD VALUE SOMETHING, MEDIUM;"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, AlterEnumUpdateValueQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<AlterEnumUpdateValueQuery *>(
+        ast_generator.ParseQuery("ALTER ENUM Status UPDATE VALUE Good TO Bad;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->old_enum_value_, "Good");
+    ASSERT_EQ(query->new_enum_value_, "Bad");
+  }
+  {
+    const auto *query = dynamic_cast<AlterEnumUpdateValueQuery *>(
+        ast_generator.ParseQuery("ALTER ENUM `Status` UPDATE VALUE `Good` TO `Bad`;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->old_enum_value_, "Good");
+    ASSERT_EQ(query->new_enum_value_, "Bad");
+  }
+
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status ADD VALUE Good TO Bad;"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status UPDATE Good TO Bad;"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status UPDATE VALUE Good TO { Bad };"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER Status UPDATE VALUE { Good } TO Bad;"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status UPDATE VALUE Good Bad;"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, AlterEnumRemoveValueQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<AlterEnumRemoveValueQuery *>(ast_generator.ParseQuery("ALTER ENUM Status REMOVE VALUE Good;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->removed_value_, "Good");
+  }
+  {
+    const auto *query =
+        dynamic_cast<AlterEnumRemoveValueQuery *>(ast_generator.ParseQuery("ALTER ENUM `Status` REMOVE VALUE `Good`;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->removed_value_, "Good");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, DropEnumQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<DropEnumQuery *>(ast_generator.ParseQuery("DROP ENUM Status;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+  }
+  {
+    const auto *query = dynamic_cast<DropEnumQuery *>(ast_generator.ParseQuery("DROP ENUM `Status`;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PERIODIC COMMIT 10 CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 10 ROWS;"));
+
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->single_query_);
+
+    auto *single_query = query->single_query_;
+
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+
+    auto *call_subquery = dynamic_cast<CallSubquery *>(single_query->clauses_[1]);
+    const auto *nested_query = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+
+    ASSERT_TRUE(nested_query);
+    ASSERT_TRUE(nested_query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(nested_query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 'a' ROWS;"),
+                 SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF -1 ROWS;"),
+                 SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 3.0 ROWS;"),
+                 SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
+  auto &ast_generator = *GetParam();
+  const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
+  ASSERT_NE(query, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, TtlQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("DISABLE TTL;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::DISABLE);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("STOP TTL;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::STOP);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->period_, nullptr);
+    ASSERT_EQ(query->specific_time_, nullptr);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"01:23:45\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->period_, nullptr);
+    ASSERT_NE(query->specific_time_, nullptr);
+    auto st = ast_generator.LiteralValue(query->specific_time_);
+    ASSERT_TRUE(st.IsString() && st.ValueString() == "01:23:45");
+  }
+  {
+    const auto *query =
+        dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_NE(query->period_, nullptr);
+    ASSERT_NE(query->specific_time_, nullptr);
+    auto p = ast_generator.LiteralValue(query->period_);
+    ASSERT_TRUE(p.IsString() && p.ValueString() == "3h18s");
+    auto st = ast_generator.LiteralValue(query->specific_time_);
+    ASSERT_TRUE(st.IsString() && st.ValueString() == "21:09:53");
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"5m10s\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_NE(query->period_, nullptr);
+    ASSERT_EQ(query->specific_time_, nullptr);
+    auto p = ast_generator.LiteralValue(query->period_);
+    ASSERT_TRUE(p.IsString() && p.ValueString() == "5m10s");
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"56m\" AT \"16:45:00\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_NE(query->period_, nullptr);
+    ASSERT_NE(query->specific_time_, nullptr);
+    auto p = ast_generator.LiteralValue(query->period_);
+    ASSERT_TRUE(p.IsString() && p.ValueString() == "56m");
+    auto st = ast_generator.LiteralValue(query->specific_time_);
+    ASSERT_TRUE(st.IsString() && st.ValueString() == "16:45:00");
+  }
 }

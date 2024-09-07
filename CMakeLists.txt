@@ -42,6 +42,10 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
+# this reduces issues in build folders from inside containers
+# which are different locations than the host
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
@@ -199,6 +203,7 @@ add_compile_options(
         -Werror=return-stack-address
         -Wno-c99-designator
         -Wmissing-field-initializers
+        -Werror=implicit-fallthrough
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
@@ -415,6 +420,16 @@ endif()
 if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
+
+# All targets which generate code, useful as a single target to build for clang-tidy analysis to work
+add_custom_target(generated_code DEPENDS
+    generate_opencypher_parser
+    mgcxx-proj
+    librdkafka-proj
+    antlr4-proj
+    librdtsc-proj
+    pulsar-proj
+)
 
 install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
   PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE

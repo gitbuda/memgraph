@@ -20,15 +20,11 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
-// TODO(gitbuda): To create edges, GAR internal vertex id for a given label is required -> calculate of propagate.
+// TODO(gitbuda): To create edge, GAR internal vertex id for a given label is required -> calculate of propagate.
 // TODO(gitbuda): What is the right type for IDs?
 // TODO(gitbuda): How to safely create all PMR values with minimal code and maximal flexibility?
 
 namespace memgraph::storage::custom_storage {
-
-// TODO(gitbuda): Use memgraph::storage::PropertyValue here beucase it will be allocator aware under
-// https://github.com/memgraph/memgraph/pull/1895.
-using PropertyValue = std::variant<int64_t, std::pmr::string>;
 
 // NOTE: This should be allocator aware because after import, all that could be deleted.
 //   * C++Weekly#235 -> https://www.youtube.com/watch?v=vXJ1dwJ9QkI
@@ -37,7 +33,7 @@ using PropertyValue = std::variant<int64_t, std::pmr::string>;
 // TODO(gitbuda): Make and test Vertex being allocator aware.
 struct Vertex {
   // This is here because of the hybrid-schema option (having different type of IDs)
-  PropertyValue id;
+  memgraph::storage::PropertyValue id;
   std::vector<std::string> labels;
   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> properties;
   // std::pmr::vector<std::pmr::string> labels;  // NOTE: GAR only supports one label per vertex!

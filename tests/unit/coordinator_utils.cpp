@@ -20,14 +20,22 @@ using memgraph::coordination::CoordinatorInstanceInitConfig;
 
 class CoordinationUtils : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) {
+      std::filesystem::create_directories(test_folder_);
+    }
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_coordination"};
 
   int const bolt_port{8688};
   int const coordinator_port{20111};
+  int const management_port{30111};
   uint32_t const coordinator_id{11};
 };
 
@@ -68,8 +76,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+  CoordinatorInstanceInitConfig const init_config1{
+      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
+      "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
 
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
@@ -122,8 +131,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history3};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+  CoordinatorInstanceInitConfig const init_config1{
+      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
+      "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);
@@ -179,8 +189,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_longest};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+  CoordinatorInstanceInitConfig const init_config1{
+      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
+      "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);
@@ -240,8 +251,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history_2};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+  CoordinatorInstanceInitConfig const init_config1{
+      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
+      "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);

@@ -16,10 +16,12 @@
 
 #include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination_observer.hpp"
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 
+#include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
@@ -49,8 +51,9 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 class RaftState {
  public:
   auto InitRaftServer() -> void;
-  explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
-                     BecomeFollowerCb become_follower_cb);
+  explicit RaftState(CoordinatorInstanceInitConfig const &instance_config, BecomeLeaderCb become_leader_cb,
+                     BecomeFollowerCb become_follower_cb,
+                     std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);
   RaftState() = delete;
   RaftState(RaftState const &other) = default;
   RaftState &operator=(RaftState const &other) = default;
@@ -65,6 +68,8 @@ class RaftState {
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto IsLeader() const -> bool;
+
+  auto GetCoordinatorId() const -> uint32_t;
 
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
@@ -97,17 +102,21 @@ class RaftState {
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
 
+  auto GetLeaderId() const -> uint32_t;
+
+  [[nodiscard]] auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+
  private:
   int coordinator_port_;
   uint32_t coordinator_id_;
 
-  ptr<CoordinatorStateMachine> state_machine_;
-  ptr<CoordinatorStateManager> state_manager_;
   ptr<logger> logger_;
   ptr<raft_server> raft_server_;
   ptr<asio_service> asio_service_;
   ptr<rpc_listener> asio_listener_;
 
+  ptr<CoordinatorStateMachine> state_machine_;
+  ptr<CoordinatorStateManager> state_manager_;
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
 };

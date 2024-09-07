@@ -19,21 +19,23 @@ options { tokenVocab=MemgraphCypherLexer; }
 
 import Cypher ;
 
+/* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
-                      | ADD
                       | ACTIVE
+                      | ADD
                       | AFTER
                       | ALTER
                       | ANALYZE
                       | ASYNC
+                      | AT
                       | AUTH
                       | BAD
                       | BATCH_INTERVAL
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
-                      | BUILD
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CALL
                       | CHECK
                       | CLEAR
@@ -47,21 +49,25 @@ memgraphCypherKeyword : cypherKeyword
                       | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
+                      | CURRENT
                       | DATA
-                      | DO
-                      | DELIMITER
                       | DATABASE
                       | DATABASES
+                      | DELIMITER
                       | DEMOTE
                       | DENY
                       | DIRECTORY
+                      | DO
+                      | DISABLE
                       | DROP
                       | DUMP
                       | DURABILITY
                       | EDGE
                       | EDGE_TYPES
+                      | ENABLE
                       | ENUM
                       | ENUMS
+                      | EVERY
                       | EXECUTE
                       | FAILOVER
                       | FOR
@@ -72,17 +78,18 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GLOBAL
                       | GRANT
-                      | GRAPH
                       | GRANTS
+                      | GRAPH
                       | HEADER
                       | IDENTIFIED
+                      | IF
                       | IGNORE
                       | IMPORT
                       | INACTIVE
-                      | IN_MEMORY_ANALYTICAL
-                      | IN_MEMORY_TRANSACTIONAL
                       | INSTANCE
                       | INSTANCES
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | ISOLATION
                       | KAFKA
                       | LABELS
@@ -99,15 +106,20 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
+                      | OF_TOKEN
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
+                      | ON_DISK_TRANSACTIONAL
                       | PASSWORD
+                      | PERIODIC
                       | PORT
                       | PRIVILEGES
                       | PULSAR
+                      | QUOTE
                       | READ
                       | READ_FILE
                       | REGISTER
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -115,7 +127,9 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROWS
                       | QUOTE
+                      | SCHEMA
                       | SERVER
                       | SERVICE_URL
                       | SESSION
@@ -138,11 +152,12 @@ memgraphCypherKeyword : cypherKeyword
                       | TO
                       | TOPICS
                       | TRANSACTION
-                      | TRANSACTION_MANAGEMENT
                       | TRANSACTIONS
+                      | TRANSACTION_MANAGEMENT
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
+                      | TTL
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -151,6 +166,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUE
                       | VALUES
                       | VERSION
                       | WEBSOCKET
@@ -192,16 +208,24 @@ query : cypherQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
+      | alterEnumRemoveValueQuery
+      | dropEnumQuery
+      | showSchemaInfoQuery
+      | ttlQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
+          | showCurrentUser
           | showUsers
           | setRole
           | clearRole
@@ -264,11 +288,21 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
+
+preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
+
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
+
+callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -329,7 +363,11 @@ ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
+
 dropUser : DROP USER user=userOrRoleName ;
+
+showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
@@ -567,9 +605,9 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
-dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 
@@ -579,8 +617,25 @@ enumName : symbolicName ;
 
 enumValue : symbolicName ;
 
-enumValuesList : enumValue ( ',' enumValue )* ;
-
-createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
 
 showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;
+
+alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
+
+dropEnumQuery: DROP ENUM enumName ;
+
+showSchemaInfoQuery : SHOW SCHEMA INFO ;
+
+stopTtlQuery: ( DISABLE | STOP ) TTL ;
+
+startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                           | ( AT time=literal ) ( EVERY period=literal )? )? ;
+
+ttlQuery: stopTtlQuery
+        | startTtlQuery
+        ;

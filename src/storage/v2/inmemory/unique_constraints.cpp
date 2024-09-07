@@ -99,15 +99,15 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
         if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
-          break;
         }
+        break;
       }
       case Delta::Action::REMOVE_LABEL: {
         if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
-          break;
         }
+        break;
       }
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::ADD_OUT_EDGE:
@@ -488,17 +488,12 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
   return ret;
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                                      const absl::flat_hash_set<LabelId> &labels) {
+void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_props, storage] : constraints_) {
     // before starting constraint, check if stop_requested
     if (token.stop_requested()) return;
-
-    if (!labels.contains(label_props.first)) {
-      continue;
-    }
 
     auto acc = storage.access();
     for (auto it = acc.begin(); it != acc.end();) {

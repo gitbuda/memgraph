@@ -11,7 +11,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -23,11 +22,16 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
+#include "nuraft/logger_wrapper.hpp"
 #include "utils/counter.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include "json/json.hpp"
+
+#include "nuraft/constants_log_durability.hpp"
+#include "utils.hpp"
 
 namespace memgraph::coordination {
 
@@ -41,14 +45,76 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
-                     BecomeFollowerCb become_follower_cb)
+                     BecomeFollowerCb become_follower_cb, std::optional<CoordinationClusterChangeObserver> observer)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(cs_new<CoordinatorStateManager>(config)),
-      logger_(nullptr),
+      logger_(cs_new<Logger>(config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
-      become_follower_cb_(std::move(become_follower_cb)) {}
+      become_follower_cb_(std::move(become_follower_cb)) {
+  auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
+  memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
+
+  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id,
+                                                     config.coordinator_port,
+                                                     config.bolt_port,
+                                                     config.management_port,
+                                                     coordinator_state_manager_durability_dir,
+                                                     config.coordinator_hostname};
+  auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
+  LogStoreDurability log_store_durability;
+
+  if (config.use_durability) {
+    auto const log_store_path = config.durability_dir / "logs";
+    memgraph::utils::EnsureDirOrDie(log_store_path);
+    auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
+
+    log_store_durability.durability_store_ = durability_store;
+    log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
+        GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
+    state_manager_config.log_store_durability_ = log_store_durability;
+  }
+
+  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
+  state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
+
+  auto const last_commit_index_snapshot = [this]() -> uint64_t {
+    if (auto const last_snapshot = state_machine_->last_snapshot(); last_snapshot != nullptr) {
+      return last_snapshot->get_last_log_idx();
+    }
+    return 0;
+  }();  // iile
+
+  auto log_store = state_manager_->load_log_store();
+
+  if (!log_store) {
+    return;
+  }
+
+  auto const last_committed_index_state_machine_{state_machine_->last_commit_index()};
+  spdlog::trace("Last commited index from snapshot: {}, last commited index in state machine: {}",
+                last_commit_index_snapshot, last_committed_index_state_machine_);
+  auto *coordinator_log_store = static_cast<CoordinatorLogStore *>(log_store.get());
+  auto log_entries =
+      coordinator_log_store->GetAllEntriesRange(last_commit_index_snapshot, last_committed_index_state_machine_ + 1);
+
+  for (auto const &entry : log_entries) {
+    if (entry.second == nullptr) {
+      spdlog::error("Log entry for id {} is nullptr", entry.first);
+      continue;
+    }
+    spdlog::trace("Applying log entry from log store with index {}", entry.first);
+    if (entry.second->get_val_type() == nuraft::log_val_type::conf) {
+      auto cluster_config = state_manager_->load_config();
+      state_machine_->commit_config(entry.first, cluster_config);
+    } else {
+      state_machine_->commit(entry.first, entry.second->get_buf());
+    }
+  }
+
+  if (log_store_durability.stored_log_store_version_ != kActiveVersion) {
+    log_store_durability.durability_store_->Put(kLogStoreVersion, std::to_string(static_cast<int>(kActiveVersion)));
+  }
+}
 
 // Call to this function results in call to
 // coordinator instance, make sure everything is initialized in coordinator instance
@@ -59,21 +125,24 @@ auto RaftState::InitRaftServer() -> void {
   asio_opts.thread_pool_size_ = 1;
 
   raft_params params;
-  params.heart_beat_interval_ = 100;
-  params.election_timeout_lower_bound_ = 200;
-  params.election_timeout_upper_bound_ = 400;
+  params.heart_beat_interval_ = 1000;
+  params.election_timeout_lower_bound_ = 2000;
+  params.election_timeout_upper_bound_ = 4000;
   params.reserved_log_items_ = 5;
   params.snapshot_distance_ = 5;
   params.client_req_timeout_ = 3000;
   params.return_method_ = raft_params::blocking;
 
-  // If the leader doesn't receive any response from quorum nodes
-  // in 200ms, it will step down.
-  // This allows us to achieve strong consistency even if network partition
-  // happens between the current leader and followers.
-  // The value must be <= election_timeout_lower_bound_ so that cluster can never
-  // have multiple leaders.
-  params.leadership_expiry_ = 200;
+  // leadership expiry needs to be above 0, otherwise leadership never expires
+  // this is bug in nuraft code
+  params.leadership_expiry_ = 2000;
+
+  // https://github.com/eBay/NuRaft/blob/master/docs/custom_commit_policy.md#full-consensus-mode
+  // we want to set coordinator to unhealthy as soon as it is down and doesn't respond
+  auto limits = raft_server::get_raft_limits();
+  // Limit is set to 2 because 2*params.heart_beat_interval_ == params.leadership_expiry_ which is 2000
+  limits.response_limit_.store(2);
+  raft_server::set_raft_limits(limits);
 
   raft_server::init_options init_opts;
 
@@ -83,9 +152,6 @@ auto RaftState::InitRaftServer() -> void {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
     } else if (event_type == cb_func::BecomeFollower) {
-      // TODO(antoniofilipovic) Check what happens when becoming follower while doing failover
-      // There is no way to stop becoming a follower:
-      // https://github.com/eBay/NuRaft/blob/188947bcc73ce38ab1c3cf9d01015ca8a29decd9/src/raft_server.cxx#L1334-L1335
       spdlog::trace("Got request to become follower");
       become_follower_cb_();
       spdlog::trace("Node {} became follower", param->myId);
@@ -128,25 +194,33 @@ auto RaftState::InitRaftServer() -> void {
   asio_listener_->listen(raft_server_);
   spdlog::trace("Asio listener active on {}", coord_endpoint);
 
-  // Don't return until role is set
-  auto maybe_stop = utils::ResettableCounter<500>();
+  // If we don't get initialized in 2min, we throw an exception and abort coordinator initialization.
+  // When the follower gets back, it waits for the leader to ping it.
+  // In the meantime, the election timer will trigger and the follower will enter the pre-vote protocol which should
+  // fail because the leader is actually alive. So even if rpc listener is created (on follower), the initialization
+  // isn't complete until leader sends him append_entries_request.
+  auto maybe_stop = utils::ResettableCounter<1200>();
   while (!maybe_stop()) {
     // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
     if (raft_server_->is_initialized()) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   if (!raft_server_->is_initialized()) {
-    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator_{}", coord_endpoint);
+    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator with endpoint {}",
+                                   coord_endpoint);
   }
 }
 
 RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
-  state_machine_.reset();
-  state_manager_.reset();
-  logger_.reset();
+
+  utils::OnScopeExit const reset_shared_ptrs{[this]() {
+    state_machine_.reset();
+    state_manager_.reset();
+    logger_.reset();
+  }};
 
   if (!raft_server_) {
     spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
@@ -179,6 +253,12 @@ RaftState::~RaftState() {
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
+auto RaftState::GetCoordinatorId() const -> uint32_t { return coordinator_id_; }
+
+auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
+  return state_manager_->GetCoordinatorToCoordinatorConfigs();
+}
+
 auto RaftState::RaftSocketAddress() const -> std::string {
   return raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
 }
@@ -198,7 +278,6 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
     throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
                                  endpoint, int(cmd_result->get_result_code()));
   }
-
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter<max_tries>();
@@ -239,7 +318,6 @@ auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoor
   return ranges::views::transform(
              srv_configs,
              [](auto const &srv_config) {
-               spdlog::trace("Endpoint: {}", srv_config->get_endpoint());
                return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
              }) |
          ranges::to<std::vector>();
@@ -475,13 +553,12 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  // TODO: (andi) This is wrong check, Fico will correct in #1819.
   auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::MAIN;
+    return IsCurrentMain(instance.config.instance_name);
   };
 
   auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::REPLICA;
+    return !IsCurrentMain(instance.config.instance_name);
   };
 
   auto const &raft_log_repl_instances = GetReplicationInstances();
@@ -512,6 +589,8 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
   return res;
 }
+
+auto RaftState::GetLeaderId() const -> uint32_t { return raft_server_->get_leader(); }
 
 }  // namespace memgraph::coordination
 #endif

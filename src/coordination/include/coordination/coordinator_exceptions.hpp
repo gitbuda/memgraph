@@ -105,5 +105,71 @@ class InvalidRoutingTableException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(InvalidRoutingTableException)
 };
 
+class StoreSnapshotToDiskException final : public utils::BasicException {
+ public:
+  explicit StoreSnapshotToDiskException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit StoreSnapshotToDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : StoreSnapshotToDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(StoreSnapshotToDiskException)
+};
+
+class NoSnapshotOnDiskException final : public utils::BasicException {
+ public:
+  explicit NoSnapshotOnDiskException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit NoSnapshotOnDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : NoSnapshotOnDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(NoSnapshotOnDiskException)
+};
+
+class DeleteSnapshotFromDiskException final : public utils::BasicException {
+ public:
+  explicit DeleteSnapshotFromDiskException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit DeleteSnapshotFromDiskException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : DeleteSnapshotFromDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(DeleteSnapshotFromDiskException)
+};
+
+class StoreClusterConfigException final : public utils::BasicException {
+ public:
+  explicit StoreClusterConfigException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit StoreClusterConfigException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : DeleteSnapshotFromDiskException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(StoreClusterConfigException)
+};
+
+class VersionMigrationException final : public utils::BasicException {
+ public:
+  explicit VersionMigrationException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit VersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : VersionMigrationException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(VersionMigrationException)
+};
+
+class CoordinatorStateMachineVersionMigrationException final : public utils::BasicException {
+ public:
+  explicit CoordinatorStateMachineVersionMigrationException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit CoordinatorStateMachineVersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : CoordinatorStateMachineVersionMigrationException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorStateMachineVersionMigrationException)
+};
+
 }  // namespace memgraph::coordination
 #endif

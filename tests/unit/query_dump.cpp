@@ -37,6 +37,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
+#include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
 
 const char *kPropertyId = "property_id";
@@ -53,13 +54,13 @@ struct DatabaseState {
   struct Vertex {
     int64_t id;
     std::set<std::string, std::less<>> labels;
-    std::map<std::string, memgraph::storage::PropertyValue> props;
+    memgraph::storage::PropertyValue::map_t props;
   };
 
   struct Edge {
     int64_t from, to;
     std::string edge_type;
-    std::map<std::string, memgraph::storage::PropertyValue> props;
+    memgraph::storage::PropertyValue::map_t props;
   };
 
   struct LabelItem {
@@ -157,7 +158,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all vertices
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
-  auto dba = db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto dba = db->Access();
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
@@ -165,7 +166,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &label : *maybe_labels) {
       labels.insert(dba->LabelToName(label));
     }
-    std::map<std::string, memgraph::storage::PropertyValue> props;
+    memgraph::storage::PropertyValue::map_t props;
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_properties.HasValue());
     for (const auto &kv : *maybe_properties) {
@@ -184,7 +185,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     MG_ASSERT(maybe_edges.HasValue());
     for (const auto &edge : maybe_edges->edges) {
       const auto &edge_type_name = dba->EdgeTypeToName(edge.EdgeType());
-      std::map<std::string, memgraph::storage::PropertyValue> props;
+      memgraph::storage::PropertyValue::map_t props;
       auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
       MG_ASSERT(maybe_properties.HasValue());
       for (const auto &kv : *maybe_properties) {
@@ -241,7 +242,7 @@ auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::Datab
   interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   ResultStreamFaker stream(db->storage());
 
-  auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, {});
+  auto [header, _1, qid, _2] = interpreter.Prepare(query, memgraph::query::no_params_fn, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -251,7 +252,7 @@ auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::Datab
 
 memgraph::storage::VertexAccessor CreateVertex(memgraph::storage::Storage::Accessor *dba,
                                                const std::vector<std::string> &labels,
-                                               const std::map<std::string, memgraph::storage::PropertyValue> &props,
+                                               const memgraph::storage::PropertyValue::map_t &props,
                                                bool add_property_id = true) {
   MG_ASSERT(dba);
   auto vertex = dba->CreateVertex();
@@ -272,7 +273,7 @@ memgraph::storage::VertexAccessor CreateVertex(memgraph::storage::Storage::Acces
 memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor *dba,
                                            memgraph::storage::VertexAccessor *from,
                                            memgraph::storage::VertexAccessor *to, const std::string &edge_type_name,
-                                           const std::map<std::string, memgraph::storage::PropertyValue> &props,
+                                           const memgraph::storage::PropertyValue::map_t &props,
                                            bool add_property_id = true) {
   MG_ASSERT(dba);
   auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
@@ -477,9 +478,9 @@ TYPED_TEST(DumpTest, MultipleVertices) {
   }
 }
 
-TYPED_TEST(DumpTest, PropertyValue) {
+void test_PropertyValue(auto *test) {
   {
-    auto dba = this->db->Access();
+    auto dba = test->db->Access();
     auto null_value = memgraph::storage::PropertyValue();
     auto int_value = memgraph::storage::PropertyValue(13);
     auto bool_value = memgraph::storage::PropertyValue(true);
@@ -493,7 +494,7 @@ TYPED_TEST(DumpTest, PropertyValue) {
                                         memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
     auto ldt = memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
         memgraph::storage::TemporalType::LocalDateTime,
-        memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
+        memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()));
     auto dur = memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
         memgraph::storage::TemporalType::Duration, memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds));
     auto zdt = memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
@@ -507,12 +508,12 @@ TYPED_TEST(DumpTest, PropertyValue) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(test->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = test->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, test->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
@@ -522,6 +523,20 @@ TYPED_TEST(DumpTest, PropertyValue) {
                   "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
+}
+
+TYPED_TEST(DumpTest, PropertyValue) { test_PropertyValue(this); }
+
+TYPED_TEST(DumpTest, PropertyValueTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_PropertyValue(this);
+}
+
+TYPED_TEST(DumpTest, PropertyValueTZ2) {
+  HandleTimezone htz;
+  htz.Set("America/Los_Angeles");
+  test_PropertyValue(this);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -721,8 +736,8 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
 TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   {
     auto dba = this->db->Access();
-    std::map<std::string, memgraph::storage::PropertyValue> prop1 = {
-        {"nested1", memgraph::storage::PropertyValue(1337)}, {"nested2", memgraph::storage::PropertyValue(3.14)}};
+    memgraph::storage::PropertyValue::map_t prop1 = {{"nested1", memgraph::storage::PropertyValue(1337)},
+                                                     {"nested2", memgraph::storage::PropertyValue(3.14)}};
 
     CreateVertex(
         dba.get(), {"Label1", "Label2"},
@@ -798,7 +813,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto zdt = memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime,
         memgraph::utils::AsSysTime(
-            memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()),
+            memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()),
         memgraph::utils::Timezone("America/Los_Angeles"));
 
     CreateEdge(dba.get(), &u, &v, "Knows", {});
@@ -819,9 +834,10 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                              memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
     CreateEdge(
         dba.get(), &w, &z, "LocalDateTime",
-        {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                      memgraph::storage::TemporalType::LocalDateTime,
-                      memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+        {{"time",
+          memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+              memgraph::storage::TemporalType::LocalDateTime,
+              memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()))}});
     CreateEdge(dba.get(), &w, &z, "Duration",
                {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                              memgraph::storage::TemporalType::Duration,
@@ -957,7 +973,7 @@ class StatefulInterpreter {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(interpreter_.current_db_.db_acc_->get()->storage());
 
-    auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, {});
+    auto [header, _1, qid, _2] = interpreter_.Prepare(query, memgraph::query::no_params_fn, {});
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);
@@ -1161,7 +1177,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
-  auto acc = this->db->storage()->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto acc = this->db->storage()->Access();
   memgraph::query::DbAccessor dba(acc.get());
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1173,7 +1189,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::AllowEverythingAuthChecker auth_checker;
     memgraph::query::InterpreterConfig::Query query_config;
     memgraph::query::DbAccessor dba(acc.get());
-    const std::map<std::string, memgraph::storage::PropertyValue> props;
+    const memgraph::storage::PropertyValue::map_t props;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }

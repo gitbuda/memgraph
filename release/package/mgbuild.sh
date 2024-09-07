@@ -13,23 +13,20 @@ SUPPORTED_TOOLCHAINS=(
 DEFAULT_OS="all"
 SUPPORTED_OS=(
     all
-    amzn-2
-    centos-7 centos-9
+    centos-9
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
     rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
 SUPPORTED_OS_V4=(
-    amzn-2
-    centos-7 centos-9
+    centos-9
     debian-10 debian-11 debian-11-arm
     fedora-36
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 SUPPORTED_OS_V5=(
-    amzn-2
-    centos-7 centos-9
+    centos-9
     debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-38 fedora-39
     rocky-9.3
@@ -99,6 +96,7 @@ print_help () {
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
+  echo -e "  --cmake-only                  Only run cmake configure command"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
@@ -247,13 +245,13 @@ build_memgraph () {
     arm_flag="-DMG_ARCH="ARM64""
   fi
   local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
-  local skip_rpath_flags="-DCMAKE_SKIP_INSTALL_RPATH:BOOL=YES -DCMAKE_SKIP_RPATH:BOOL=YES"
   local telemetry_id_override_flag=""
   local community_flag=""
   local coverage_flag=""
   local asan_flag=""
   local ubsan_flag=""
   local init_only=false
+  local cmake_only=false
   local for_docker=false
   local for_platform=false
   local copy_from_host=true
@@ -265,6 +263,10 @@ build_memgraph () {
       ;;
       --init-only)
         init_only=true
+        shift 1
+      ;;
+      --cmake-only)
+        cmake_only=true
         shift 1
       ;;
       --for-docker)
@@ -354,8 +356,17 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
+  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
+  if [[ "$cmake_only" == "true" ]]; then
+    build_target(){
+      target=$1
+      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
+    }
+    # Force build that generate the header files needed by analysis (ie. clang-tidy)
+    build_target generated_code
+    return
+  fi
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # Default value for $threads is 0 instead of $(nproc) because macos
@@ -456,8 +467,8 @@ copy_memgraph() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --binary)#cp -L
-        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
           exit 1
         fi
         artifact="binary"
@@ -467,8 +478,8 @@ copy_memgraph() {
         shift 1
       ;;
       --build-logs)#cp -L
-        if [[ "$artifact" == "package" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
           exit 1
         fi
         artifact="build logs"
@@ -478,8 +489,8 @@ copy_memgraph() {
         shift 1
       ;;
       --package)#cp
-        if [[ "$artifact" == "build logs" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
           exit 1
         fi
         artifact="package"
@@ -487,6 +498,18 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR/output/$os"
         artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
         container_artifact_path="$container_package_dir/$artifact_name"
+        shift 1
+      ;;
+      --libs)#cp -L
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
+          exit 1
+        fi
+        artifact="libs"
+        artifact_name="libmemgraph_module_support.so"
+
+        container_artifact_path="$MGBUILD_BUILD_DIR/src/query/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR/src/query"
         shift 1
       ;;
       --dest-dir)
@@ -512,7 +535,7 @@ copy_memgraph() {
   fi
   local host_artifact_path="$host_dir/$artifact_name"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
-  mkdir -p $host_dir
+  mkdir -p "$host_dir"
   if [[ "$artifact" == "package" ]]; then
     docker cp $build_container:$container_artifact_path $host_artifact_path
   else
