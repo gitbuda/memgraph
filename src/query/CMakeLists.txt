@@ -78,6 +78,7 @@ target_sources(mg-query
     string_helpers.hpp
 )
 
+add_subdirectory(custom_cursors)
 
 target_link_libraries(mg-query
     PUBLIC
@@ -96,6 +97,7 @@ target_link_libraries(mg-query
     mg::system
     mg-flags
     mg-dbms
+    mg_custom_cursors
     mg-events
     PRIVATE
     mg-module-support

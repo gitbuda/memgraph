@@ -157,6 +157,7 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
+  ["graphar"]="http://$local_cache_host/git/GraphAr.git"
   ["strong_type"]="http://$local_cache_host/git/strong_type.git"
 )
 
@@ -191,6 +192,7 @@ declare -A secondary_urls=(
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["strong_type"]="https://github.com/rollbear/strong_type.git"
+  ["graphar"]="https://github.com/apache/incubator-graphar.git"
 )
 
 # antlr
@@ -337,3 +339,7 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 # strong_type v14
 strong_type_ref="v14"
 repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
+
+# GraphAr 2024-07-02
+graphar_tag="v0.12.0"
+repo_clone_try_double "${primary_urls[graphar]}" "${secondary_urls[graphar]}" "graphar" "$graphar_tag" true

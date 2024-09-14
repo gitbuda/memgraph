@@ -26,6 +26,7 @@ namespace memgraph::flags {
 enum class Experiments : uint8_t {
   TEXT_SEARCH = 1 << 0,
   HIGH_AVAILABILITY = 1 << 1,
+  ALTERNATIVE_STORAGE = 1 << 2,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);

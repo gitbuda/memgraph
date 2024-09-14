@@ -48,6 +48,7 @@ auto const canonicalize_string = [](auto &&rng) {
 namespace memgraph::flags {
 
 auto const mapping = std::map{std::pair{"text-search"sv, Experiments::TEXT_SEARCH},
+                              std::pair{"alternative-storage"sv, Experiments::ALTERNATIVE_STORAGE},
                               std::pair{"high-availability"sv, Experiments::HIGH_AVAILABILITY}};
 
 auto ExperimentsInstance() -> Experiments & {

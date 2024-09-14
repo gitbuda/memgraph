@@ -336,6 +336,11 @@ mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 
-
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)
+
+# Setup GraphAr
+import_external_library(graphar SHARED
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/lib/libgraphar.so
+  ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp/include
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/graphar/cpp)
