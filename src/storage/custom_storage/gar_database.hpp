@@ -15,12 +15,10 @@
 #include <memory>
 #include <vector>
 
-#include <graphar/api.h>
+#include "graphar/api.h"
+#include "graphar/fwd.h"
 
 #include "utils/logging.hpp"
-
-// TODO(gitbuda): Add simple implementation of transactional support.
-// TODO(gitbuda): Since only one label per node is supported -> make a reserved property for other labels.
 
 namespace memgraph::storage::custom_storage {
 
@@ -28,6 +26,8 @@ struct GARDatabaseConfig {
   struct PerDatabase {
     std::filesystem::path root{std::filesystem::temp_directory_path()};  // single database root directory
     std::shared_ptr<graphar::InfoVersion> version;
+    std::string graph_name{"graph"};
+    std::string graph_metadata_suffix{".graph.yaml"};
     std::string vertex_metadata_suffix{".vertex.yaml"};
     std::string edge_metadata_suffix{".edge.yaml"};
     std::filesystem::path vertex_folder_prefix{"vertex"};
@@ -38,10 +38,12 @@ struct GARDatabaseConfig {
     int64_t edge_dst_chunk_size{1024};
     bool is_directed{false};
     graphar::AdjListType ordering;
-  } * base;
+    std::string SavePath() const { return root / std::filesystem::path(graph_name + graph_metadata_suffix); }
+  };
+  std::shared_ptr<PerDatabase> base{nullptr};
 
   struct GARVertexType {
-    PerDatabase *base{nullptr};
+    std::shared_ptr<PerDatabase> base{nullptr};
     void CheckBase() const { MG_ASSERT(base != nullptr); }
     std::string label;
     graphar::PropertyGroupVector properties;
@@ -57,7 +59,7 @@ struct GARDatabaseConfig {
   std::vector<GARVertexType> vertex_types;
 
   struct GAREdgeType {
-    PerDatabase *base{nullptr};
+    std::shared_ptr<PerDatabase> base{nullptr};
     void CheckBase() const { MG_ASSERT(base != nullptr); }
     std::string src_label;
     std::string edge_type;
@@ -86,7 +88,7 @@ inline auto InitVertexType(const GARDatabaseConfig::GARVertexType &vertex_type) 
 }
 
 inline auto InitVertexTypes(const GARDatabaseConfig &config) {
-  std::vector<std::shared_ptr<graphar::VertexInfo>> vertex_infos;
+  graphar::VertexInfoVector vertex_infos;
   for (const auto &vertex_type : config.vertex_types) {
     auto vertex_info = InitVertexType(vertex_type);
     vertex_infos.push_back(vertex_info);
@@ -105,12 +107,20 @@ inline auto InitEdgeType(const GARDatabaseConfig::GAREdgeType &edge_type) {
 }
 
 inline auto InitEdgeTypes(const GARDatabaseConfig &config) {
-  std::vector<std::shared_ptr<graphar::EdgeInfo>> edge_infos;
+  graphar::EdgeInfoVector edge_infos;
   for (const auto &edge_type : config.edge_types) {
     auto edge_info = InitEdgeType(edge_type);
     edge_infos.push_back(edge_info);
   }
   return edge_infos;
+}
+
+inline auto InitGraph(const GARDatabaseConfig &config, const graphar::VertexInfoVector &vertex_infos,
+                      const graphar::EdgeInfoVector &edge_infos) {
+  auto graph_info = graphar::CreateGraphInfo(config.base->graph_name, vertex_infos, edge_infos, config.base->root);
+  MG_ASSERT(!graph_info->Dump().has_error());
+  MG_ASSERT(graph_info->Save(config.base->SavePath()).ok());
+  return graph_info;
 }
 
 }  // namespace memgraph::storage::custom_storage
