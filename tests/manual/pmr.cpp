@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iostream>
 #include <memory_resource>
 #include <string>
 
@@ -65,7 +66,42 @@ struct Node {
   allocator_type get_allocator() const { return label.get_allocator(); }
 };
 
+// thanks to Rahil Baber
+// Prints if new/delete gets used.
+class print_alloc : public std::pmr::memory_resource {
+ private:
+  void *do_allocate(std::size_t bytes, std::size_t alignment) override {
+    std::cout << "Allocating " << bytes << '\n';
+    return std::pmr::new_delete_resource()->allocate(bytes, alignment);
+  }
+  void do_deallocate(void *p, std::size_t bytes, std::size_t alignment) override {
+    std::cout << "Deallocating " << bytes << ": '";
+    for (std::size_t i = 0; i < bytes; ++i) {
+      std::cout << *(static_cast<char *>(p) + i);
+    }
+    std::cout << "'\n";
+    return std::pmr::new_delete_resource()->deallocate(p, bytes, alignment);
+  }
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    return std::pmr::new_delete_resource()->is_equal(other);
+  }
+};
+
+// This is useful because of the problem with initializer lists + alloc + reserve (remember initializer lists are
+// broken).
+template <typename Container, typename... Values>
+auto create_container(auto *resource, Values &&...values) {
+  Container result{resource};
+  result.reserve(sizeof...(values));
+  (result.emplace_back(std::forward<Values>(values)), ...);
+  return result;
+};
+
 int main() {
+  // IMPORTANT: This is a super nice debugging technique -> if PMR is not set, the default resource will tell us.
+  print_alloc mem;
+  std::pmr::set_default_resource(&mem);
+
   std::array<std::uint8_t, 128> buffer1{};
   std::pmr::monotonic_buffer_resource pool1(buffer1.data(), buffer1.size());
   // NOTE: vector doesn't live in the buffer, only the data itself is inside the buffer.
