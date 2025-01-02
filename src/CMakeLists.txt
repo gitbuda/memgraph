@@ -143,6 +143,10 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # END Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
 
+# memgraph tmp executable
+add_executable(memgraph_tmp memgraph_tmp.cpp)
+target_link_libraries(memgraph_tmp mg-storage-v2 mg-flags)
+
 # ----------------------------------------------------------------------------
 # Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------
